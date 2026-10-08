@@ -275,15 +275,38 @@ class RegisterService:
             ) from exc
 
     def _make_verify_hook(self, client: Optional[TempMailClient],
-                          timeout_s: float = 120.0):
-        """Build a platform-aware tempmail verifier.
+                          timeout_s: float = 120.0,
+                          default_platform: Optional[Any] = None):
+        """Build a polymorphic tempmail verifier.
 
-        Backward-compatible call: ``hook(session)`` performs the CTFd
-        ``/confirm/<token>`` GET flow. Modern adapters may call
-        ``hook(session, platform='gzctf'|'rctf', base_url=...)`` and receive a
-        small dict containing ``ok`` plus the verification API response.
+        Dispatches confirmation URL extraction and verification requests
+        polymorphically to the registered platform adapter.
         """
         if client is None:
+            return None
+
+        def _resolve_adapter(plat_val: Any, target_base_url: Optional[str], sess: Any = None):
+            from ..platforms.base import BasePlatform
+            if isinstance(plat_val, BasePlatform):
+                return plat_val
+            key = str(plat_val or "ctfd").strip().lower()
+            from ..platforms.registry import get_platform
+            cls = get_platform(key)
+            if cls:
+                try:
+                    return cls(target_base_url or "https://localhost", sess)
+                except Exception:
+                    try:
+                        return cls(base_url=target_base_url or "https://localhost", session=sess)
+                    except Exception:
+                        pass
+                try:
+                    obj = cls.__new__(cls)
+                    obj.base_url = (target_base_url or "https://localhost").rstrip("/")
+                    obj.session = sess
+                    return obj
+                except Exception:
+                    pass
             return None
 
         def _host_matches(url: str, base_url: Optional[str]) -> bool:
@@ -295,117 +318,75 @@ class RegisterService:
             except Exception:
                 return False
 
-        def _extract(content: str, platform: str, base_url: Optional[str]):
+        def _extract(content: str, adapter: Any, base_url: Optional[str]):
             urls = TempMailClient.find_urls(content)
-            if platform == "ctfd":
-                legacy = TempMailClient.find_confirm_link(content)
-                if legacy and _host_matches(legacy, base_url):
-                    return legacy
-            for url in urls:
-                if not _host_matches(url, base_url):
-                    continue
-                parsed = urllib.parse.urlparse(url)
-                query = urllib.parse.parse_qs(parsed.query)
-                path = parsed.path.rstrip("/").lower()
-                if platform == "gzctf" and path.endswith("/account/verify"):
-                    token = (query.get("token") or [""])[0]
-                    email = (query.get("email") or [""])[0]
-                    if token and email:
-                        return {"url": url, "token": token, "email": email}
-                elif platform == "rctf" and path.endswith("/verify"):
-                    token = (query.get("token") or [""])[0]
-                    if token:
-                        return {"url": url, "token": token}
+            if adapter and hasattr(adapter, "extract_verify_payload"):
+                for url in urls:
+                    if not _host_matches(url, base_url):
+                        continue
+                    extracted = adapter.extract_verify_payload(url)
+                    if extracted:
+                        if isinstance(extracted, dict) and "url" not in extracted:
+                            extracted["url"] = url
+                        return extracted
+            legacy = TempMailClient.find_confirm_link(content)
+            if legacy and _host_matches(legacy, base_url):
+                return {"url": legacy}
             return None
 
-        def hook(session, platform: str = "ctfd",
+        def hook(session, platform: Any = None,
                  base_url: Optional[str] = None):
-            platform = str(platform or "ctfd").strip().lower()
+            plat_target = platform if platform is not None else default_platform
+            adapter = _resolve_adapter(plat_target, base_url, session)
+            plat_name = (getattr(getattr(adapter, "ctf_info", None), "platform_type", None)
+                         or (plat_target if isinstance(plat_target, str) else "ctfd"))
+            is_bool_mode = bool(getattr(adapter, "return_bool_verify", False)
+                                or str(plat_name).lower() == "ctfd")
             Logger.info("Đang chờ thư xác nhận từ platform (tối đa "
                         f"{int(timeout_s)}s)...")
 
-            # New client path: ignore unrelated first emails and inspect full
-            # message bodies until one contains the expected platform link.
+            # Ignore unrelated emails and inspect full message bodies
+            # until one contains the expected platform link.
             if hasattr(client, "wait_for_content_match"):
                 found = client.wait_for_content_match(
-                    lambda content: _extract(content, platform, base_url),
+                    lambda content: _extract(content, adapter, base_url),
                     timeout_s=timeout_s,
                 )
                 hit = found[2] if found else None
             else:
-                # Compatibility for lightweight test/plugin tempmail objects.
                 msg = client.wait_for_message(timeout_s=timeout_s)
                 if msg is None:
                     hit = None
                 else:
                     content = client.fetch_message_text(msg.get("id", ""))
-                    hit = _extract(content, platform, base_url)
+                    hit = _extract(content, adapter, base_url)
 
             if not hit:
                 Logger.error("Hết giờ/chưa tìm thấy link xác nhận phù hợp — "
                              "xác minh thủ công hoặc resend email.")
-                return False if platform == "ctfd" else {"ok": False}
+                return False if is_bool_mode else {"ok": False}
 
             try:
-                if platform == "gzctf":
-                    verify_base = (base_url or "").rstrip("/")
-                    resp = session.post(
-                        f"{verify_base}/api/account/verify",
-                        json={"token": hit["token"], "email": hit["email"]},
-                        timeout=20,
-                    )
-                    ok = getattr(resp, "status_code", 0) == 200
-                    verify_data: Dict[str, Any] = {}
-                    try:
-                        parsed = resp.json() or {}
-                        if isinstance(parsed, dict):
-                            verify_data = parsed
-                    except Exception:
-                        pass
+                if adapter and hasattr(adapter, "verify_email"):
+                    ok, resp_data = adapter.verify_email(session, hit, base_url=base_url)
+                    target_url = hit.get("url") if isinstance(hit, dict) else str(hit)
                     if ok:
-                        Logger.success("GZCTF: email đã xác minh qua /api/account/verify.")
+                        Logger.success(f"{str(plat_name).upper()}: email đã xác minh thành công.")
                     else:
-                        Logger.error(
-                            f"GZCTF verify trả HTTP {getattr(resp, 'status_code', '?')}.")
-                    return {"ok": ok, "response": verify_data, "url": hit["url"]}
+                        Logger.error(f"{str(plat_name).upper()} verify thất bại.")
+                    if is_bool_mode:
+                        return ok
+                    return {"ok": ok, "response": resp_data, "url": target_url}
 
-                if platform == "rctf":
-                    verify_base = (base_url or "").rstrip("/")
-                    resp = session.post(
-                        f"{verify_base}/api/v2/auth/verify",
-                        json={"verifyToken": hit["token"]},
-                        timeout=20,
-                    )
-                    rctf_data: Dict[str, Any] = {}
-                    try:
-                        parsed = resp.json() or {}
-                        if isinstance(parsed, dict):
-                            rctf_data = parsed
-                    except Exception:
-                        pass
-                    ok = getattr(resp, "status_code", 0) == 200 and str(
-                        rctf_data.get("kind") or ""
-                    ).startswith("good")
-                    if ok:
-                        Logger.success("rCTF: pending registration đã xác minh.")
-                    else:
-                        Logger.error(
-                            f"rCTF verify thất bại: HTTP {getattr(resp, 'status_code', '?')} "
-                            f"kind={rctf_data.get('kind')!r}.")
-                    return {"ok": ok, "response": rctf_data, "url": hit["url"]}
-
-                # CTFd: clicking /confirm/<token> performs the verification.
-                resp = session.get(hit, timeout=20)
-                status = getattr(resp, "status_code", 0)
-                if status == 200:
-                    Logger.success(f"Đã mở link xác nhận ({hit}) -> HTTP 200.")
-                    return True
-                Logger.error(f"Link xác nhận trả HTTP {status or '?'} — "
-                             "chưa xác minh được email, kiểm tra thủ công.")
-                return False
+                target_url = hit.get("url") if isinstance(hit, dict) else str(hit)
+                resp = session.get(target_url, timeout=20)
+                ok = getattr(resp, "status_code", 0) == 200
+                if is_bool_mode:
+                    return ok
+                return {"ok": ok, "response": {}, "url": target_url}
             except Exception as exc:
                 Logger.error(f"Xác minh email thất bại: {exc}")
-                return False if platform == "ctfd" else {"ok": False}
+                return False if is_bool_mode else {"ok": False}
 
         return hook
 
@@ -457,7 +438,7 @@ class RegisterService:
             f"[{INFO}]{escape(info.platform_type)}[/{INFO}] "
             f"[{FG_MUTED}](confidence={info.confidence})[/{FG_MUTED}]")
 
-        hook = self._make_verify_hook(mail["tempmail"])
+        hook = self._make_verify_hook(mail["tempmail"], default_platform=platform)
 
         # Reserve the one-account attempt BEFORE the first platform register
         # POST. The old code committed only after network creation, so two

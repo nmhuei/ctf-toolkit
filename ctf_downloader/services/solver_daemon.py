@@ -133,12 +133,13 @@ def run_daemon(
             f.write(f"[{_now()}] Daemon completed work for ids '{ids}'. Total results: {len(results)}\n")
     except BaseException as exc:
         exit_code = 1
+        err_msg = str(exc)
         with log_path.open("a", encoding="utf-8") as f:
-            f.write(f"[{_now()}] Daemon error/signal: {exc}\n")
+            f.write(f"[{_now()}] Daemon error/signal: {err_msg}\n")
 
         def mutate_err(cur):
             cur["status"] = "cancelled" if stop_requested else "error"
-            cur["error"] = str(exc)
+            cur["error"] = err_msg
             cur["ended_at"] = _now()
             cur["active_ids"] = []
             return cur

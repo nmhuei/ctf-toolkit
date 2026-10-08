@@ -27,7 +27,7 @@ Record exact query/response pairs. Distinguish confidentiality, integrity, and f
 
 ### RSA and related public-key systems
 
-Run root, gcd, factor-size, modulus-sharing, and parameter-relationship checks before general factoring. Translate only the resulting equations to the specialist: for example, a monic polynomial with a stated small-root bound, never raw challenge code or ciphertext context.
+Run root, gcd, factor-size, modulus-sharing, and parameter-relationship checks before general factoring. For math review, share only the exact data that defines the subproblem. State authorization and scope accurately. Do not rename or remove facts to avoid a safety check.
 
 ### ECC, signatures, and discrete logs
 

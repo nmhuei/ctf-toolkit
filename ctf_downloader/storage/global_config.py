@@ -45,13 +45,13 @@ def load_global_config() -> Dict[str, Any]:
 
 
 def resolve_workspace_root() -> str:
-    """Root mặc định cho mọi workspace CTF, có thể đổi bằng ``ctf config``.
-
-    Default ``~/Workspace/CTF`` được expand tại THỜI ĐIỂM GỌI thay vì dùng
-    path đã đóng băng lúc import module. Điều này giữ đúng semantics khi HOME
-    thay đổi trong container/test/chroot; một workspace_root custom trong
-    config vẫn được tôn trọng nguyên vẹn.
+    """Root mặc định cho mọi workspace CTF, có thể đổi bằng ``ctf config``
+    hoặc biến môi trường ``CTF_WORKSPACE_ROOT``.
     """
+    env_root = os.environ.get("CTF_WORKSPACE_ROOT")
+    if env_root and env_root.strip():
+        return os.path.abspath(os.path.expanduser(env_root.strip()))
+
     cfg = load_global_config()
     raw = cfg.get('workspace_root')
     if not raw or str(raw) == str(DEFAULT_WORKSPACE_ROOT):

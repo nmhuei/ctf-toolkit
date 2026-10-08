@@ -57,7 +57,7 @@ def fork_agy_session(
     try:
         # 1. Copy brain directory tree
         if target_brain.exists():
-            shutil.rmtree(target_brain)
+            shutil.rmtree(target_brain, ignore_errors=True)
         shutil.copytree(source_brain, target_brain)
 
         # 2. Copy SQLite conversation db using online backup API to ensure WAL consistency

@@ -408,3 +408,75 @@ def test_solver_table_compacts_long_flags():
         rendered = output.export_text()
 
         assert "★ ASIS{f4r3…3r4!}" in rendered
+
+
+def test_solver_table_100_columns_does_not_overflow(monkeypatch):
+    import ctf_downloader.cli_commands as commands
+
+    class DummyJob:
+        display_id = 1
+        name = "very-long-challenge-name"
+        category = "Web"
+        is_solved = False
+        has_source = True
+        has_instance = True
+
+    class DummyService:
+        def scan(self):
+            return [DummyJob()]
+        def read_job(self, job):
+            return {"state": "running", "phase": "analysis", "telemetry": "reading source files"}
+        def queue_eligibility(self, job, state):
+            return type("E", (), {"local_flag": None, "reason": "ready"})()
+
+    monkeypatch.setattr(commands.StatusService, "_tty_columns", staticmethod(lambda: 100))
+    rendered = str(commands._solver_table(DummyService()))
+
+    assert "TOOL/CMD" not in rendered
+    assert max(len(line) for line in rendered.splitlines()) <= 100
+
+
+
+def test_solver_overview_55_columns_wraps_readably(monkeypatch):
+    from rich.console import Console
+    import ctf_downloader.cli_commands as commands
+
+    monkeypatch.setattr(commands.StatusService, "_tty_columns", staticmethod(lambda: 55))
+
+    panel = commands._make_solver_overview_panel(type("S", (), {"scan": lambda self: [], "read_job": lambda self, j: {}})())
+    console = Console(width=55, record=True)
+    console.print(panel)
+    text = console.export_text()
+
+    assert "SOLVER RADAR" in text
+    assert all(len(line) <= 55 for line in text.splitlines())
+
+
+@pytest.mark.parametrize("width", [55, 80, 100, 130, 140])
+def test_solver_table_width_modes(monkeypatch, width):
+    import ctf_downloader.cli_commands as commands
+
+    class DummyJob:
+        display_id = 1
+        name = "very-long-challenge-name"
+        category = "Web"
+        is_solved = False
+        has_source = True
+        has_instance = True
+
+    class DummyService:
+        def scan(self):
+            return [DummyJob()]
+        def read_job(self, job):
+            return {"state": "running", "phase": "analysis", "telemetry": "reading source files"}
+        def queue_eligibility(self, job, state):
+            return type("E", (), {"local_flag": None, "reason": "ready"})()
+
+    monkeypatch.setattr(commands.StatusService, "_tty_columns", staticmethod(lambda: width))
+    rendered = str(commands._solver_table(DummyService()))
+
+    assert all(len(line) <= width for line in rendered.splitlines())
+    if width < 130:
+        assert "MESSAGE" not in rendered
+    else:
+        assert "MESSAGE" in rendered

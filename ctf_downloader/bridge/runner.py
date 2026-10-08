@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import signal
-import sys
 
 from .constants import DEFAULT_BRIDGE_HOST, DEFAULT_BRIDGE_PORT
 from .server import BridgeServer

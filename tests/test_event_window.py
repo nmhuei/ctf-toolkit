@@ -1276,24 +1276,59 @@ class TestF5LockAtomic(TempWorkspaceCase):
 
     def test_two_processes_only_one_acquires(self):
         race_ws = tempfile.mkdtemp(prefix="lockrace_")
-        child_code = (
-            "import sys, time;"
-            "from ctf_downloader.services.watch_service import WatchStateStore;"
-            "s = WatchStateStore(sys.argv[1]);"
-            "ok = s.acquire_lock();"
-            "time.sleep(1.5);"          # giữ lock đủ lâu để các rival thấy live-pid
-            "print(ok)"
-        )
-        procs = [subprocess.Popen([sys.executable, "-c", child_code, race_ws],
-                                  stdout=subprocess.PIPE,
-                                  stderr=subprocess.DEVNULL)
-                 for _ in range(4)]
+        ready_dir = pathlib.Path(race_ws) / "ready"
+        result_dir = pathlib.Path(race_ws) / "results"
+        release_file = pathlib.Path(race_ws) / "release"
+        ready_dir.mkdir()
+        result_dir.mkdir()
+        child_code = "\n".join([
+            "import pathlib, sys, time",
+            "from ctf_downloader.services.watch_service import WatchStateStore",
+            "ws=sys.argv[1]",
+            "ready=pathlib.Path(sys.argv[2])",
+            "result=pathlib.Path(sys.argv[3])",
+            "release=pathlib.Path(sys.argv[4])",
+            "s=WatchStateStore(ws)",
+            "ok=s.acquire_lock()",
+            "result.write_text(str(ok))",
+            "ready.write_text('ready')",
+            "deadline=time.time()+15",
+            "while not release.exists() and time.time() < deadline:",
+            "    time.sleep(0.01)",
+        ])
+        procs = [
+            subprocess.Popen(
+                [sys.executable, "-c", child_code, race_ws,
+                 str(ready_dir / str(i)), str(result_dir / str(i)),
+                 str(release_file)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            for i in range(4)
+        ]
+        ready = False
+        for _ in range(100):
+            if len(list(ready_dir.iterdir())) == 4:
+                ready = True
+                break
+            time.sleep(0.01)
+        release_file.touch()
+
         outs = []
+        errs = []
+        returncodes = []
         for p in procs:
-            out, _err = p.communicate(timeout=60)
+            out, err = p.communicate(timeout=60)
             outs.append(out.decode().strip())
-        self.assertEqual(outs.count("True"), 1)    # đúng 1 process chiếm được
-        self.assertEqual(outs.count("False"), 3)
+            errs.append(err.decode().strip())
+            returncodes.append(p.returncode)
+        self.assertTrue(ready, msg=f"ready workers missing; stderr={errs}")
+        self.assertEqual(returncodes, [0, 0, 0, 0],
+                         msg=f"stdout={outs} stderr={errs}")
+        results = [(result_dir / str(i)).read_text()
+                   for i in range(4)]
+        self.assertEqual(results.count("True"), 1)
+        self.assertEqual(results.count("False"), 3)
 
 
 class TestMinorsKeepAlive(TempWorkspaceCase):

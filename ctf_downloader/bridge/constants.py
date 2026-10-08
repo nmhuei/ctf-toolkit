@@ -2,8 +2,11 @@
 from enum import Enum
 import os
 
-DEFAULT_BRIDGE_HOST = "127.0.0.1"
-DEFAULT_BRIDGE_PORT = 18888
+DEFAULT_BRIDGE_HOST = os.environ.get("CTF_BRIDGE_HOST") or "127.0.0.1"
+try:
+    DEFAULT_BRIDGE_PORT = int(os.environ.get("CTF_BRIDGE_PORT") or 18888)
+except ValueError:
+    DEFAULT_BRIDGE_PORT = 18888
 TOKEN_FILE_NAME = "bridge_token"
 PID_FILE_NAME = "bridge.pid"
 DEFAULT_REQUEST_TIMEOUT_MS = 30000

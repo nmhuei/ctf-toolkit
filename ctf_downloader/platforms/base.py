@@ -201,6 +201,29 @@ class BaseCTFPlatform(ABC):
         raise PlatformRegisterUnsupported(
             f"Auto register is not supported for {self.ctf_info.platform_type}")
 
+    # Platform capabilities and instance constraints
+    supports_notices: bool = False
+    notices_endpoint: Optional[str] = None
+    min_instance_op_gap_seconds: float = 0.0
+    max_instance_renews: Optional[int] = None
+    restart_rotates_flag: bool = True
+    return_bool_verify: bool = False
+
+    def extract_verify_payload(self, url: str) -> Optional[Dict[str, Any]]:
+        """Extract verification payload from a confirmation email link.
+
+        Return a dictionary with verification fields or None if not matching.
+        """
+        return None
+
+    def verify_email(self, session: Any, payload: Union[Dict[str, Any], str],
+                     base_url: Optional[str] = None) -> Tuple[bool, Dict[str, Any]]:
+        """Execute email verification HTTP request.
+
+        Return (is_success, response_dict).
+        """
+        return False, {}
+
     def fetch_rules(self) -> Optional[str]:
         """
         Fetches competition rules / flag-format description (raw text, HTML or markdown).

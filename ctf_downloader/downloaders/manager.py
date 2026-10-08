@@ -14,7 +14,7 @@ from .mediafire import MediafireDownloader  # noqa: F401 — side-effect đăng 
 from .mega import MegaDownloader, MEGA_MISSING_TOOL_MESSAGE
 from .registry import DOWNLOADERS
 from ..extractors.link_extractor import ExtractedLink
-from ..utils.logger import console, Logger
+from ..utils.logger import Logger
 from ..utils.sanitize import extract_filename_from_url
 
 # Mặc định 1 GB; 0 = tắt gate (không bao giờ hỏi)

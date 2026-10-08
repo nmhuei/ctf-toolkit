@@ -48,8 +48,11 @@ from .status_service import StatusService
 class WebDashboard:
     """Dashboard HTTP render trực tiếp từ StatusService + POST submit qua gate."""
 
-    DEFAULT_HOST = "127.0.0.1"
-    DEFAULT_PORT = 8689
+    DEFAULT_HOST = os.environ.get("CTF_DASHBOARD_HOST") or "127.0.0.1"
+    try:
+        DEFAULT_PORT = int(os.environ.get("CTF_DASHBOARD_PORT") or 8689)
+    except ValueError:
+        DEFAULT_PORT = 8689
     REFRESH_SECONDS = 30
 
     # v2 — POST /api/submit
@@ -504,8 +507,14 @@ footer {{ color: var(--muted); text-align: center; font-size: .8rem; margin-top:
 
         Port bận / không bind được → ``OSError`` với message rõ ràng.
         """
-        host = host or self.DEFAULT_HOST
-        port = self.DEFAULT_PORT if port is None else int(port)
+        host = host or os.environ.get("CTF_DASHBOARD_HOST") or self.DEFAULT_HOST
+        if port is None:
+            try:
+                port = int(os.environ.get("CTF_DASHBOARD_PORT") or self.DEFAULT_PORT)
+            except ValueError:
+                port = self.DEFAULT_PORT
+        else:
+            port = int(port)
         try:
             httpd = self.make_server(host, port)
         except OSError as exc:

@@ -16,7 +16,7 @@ from weakref import WeakValueDictionary
 from ..utils.failure_diagnostics import diagnose_os_error
 from ..utils.http_client import diagnose_request_exception
 from ..utils.logger import Logger
-from ..utils.sanitize import sanitize_filename, extract_filename_from_headers, extract_filename_from_url
+from ..utils.sanitize import sanitize_filename, extract_filename_from_headers
 from .registry import register_downloader
 
 CHUNK_SIZE = 131072  # 128KB default

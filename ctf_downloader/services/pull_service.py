@@ -408,6 +408,7 @@ class PullService:
                             chall_id, results = future.result()
                             all_download_results[chall_id] = results
                             if any(not item.get("success") for item in results):
+                                failed_challenges += 1
                                 failure_codes.append(PullService._download_failure_code(results))
                         except Exception as exc:
                             Logger.error(f"Error processing '{chall.name}': {type(exc).__name__}")
@@ -532,7 +533,16 @@ class PullService:
             download_third_party=config.download_third_party
         )
 
-        # Build workspace — dùng đúng thư mục đã tính ở trên
+        # Build workspace — dùng đúng thư mục đã tính ở trên. The builder writes
+        # a fresh metadata.json, so preserve state owned by local users/services
+        # when this is an update of an existing challenge.
+        from ..storage.workspace_repo import WorkspaceRepo
+
+        meta_path = Path(chall_dest_dir) / "metadata.json"
+        existing_meta = {}
+        if meta_path.exists():
+            existing_meta = WorkspaceRepo(config.output_dir).read_metadata(meta_path)
+
         WorkspaceBuilder.create_challenge_workspace(
             base_output_dir=config.output_dir,
             challenge=chall,
@@ -542,6 +552,21 @@ class PullService:
             create_solve_template=config.create_solve_template,
             challenge_dir=chall_dest_dir
         )
+
+        if existing_meta:
+            preserved_fields = {
+                key: value for key, value in existing_meta.items()
+                if key not in {
+                    "id", "name", "category", "points", "author", "tags",
+                    "hints", "connection_info", "solves_count", "raw",
+                    "downloaded_files",
+                }
+            }
+            if preserved_fields:
+                WorkspaceRepo(config.output_dir).update_metadata(
+                    meta_path,
+                    lambda current: {**current, **preserved_fields},
+                )
 
         return dl_results
 
@@ -705,7 +730,8 @@ class PullService:
         """Pull tăng dần: chỉ xử lý đầy đủ challenge MỚI, các challenge đã có
         chỉ cập nhật metadata động (points/solves/connection/instance + solve
         attribution raise-only). ``refresh_meta=True`` cho phép tải lại
-        attachment của challenge đã có khi file thiếu trên đĩa.
+        attachment của challenge đã có khi file thiếu trên đĩa; cũng dựng
+        lại tài liệu derived khi URL target thay đổi.
 
         Challenge biến mất khỏi API: giữ nguyên local, đánh dấu
         ``removed_from_server=true`` (ghi cả trong block ``status`` lẫn mirror
@@ -828,6 +854,38 @@ class PullService:
                 verify_existing
                 and ((m.get("downloaded_files") or []) or getattr(chall, "files", None))
             )
+            if refresh_meta and not needs_pipeline:
+                # A platform may initially expose its own challenge-page URL
+                # as connection_info, then reveal the actual external target
+                # after release. Rebuild derived README/metadata on refresh so
+                # the workspace records the new target and rendered prompt.
+                current_connection = getattr(chall, "connection_info", None)
+                if current_connection and current_connection != m.get("connection_info"):
+                    needs_pipeline = True
+                current_files = getattr(chall, "files", None) or []
+                if current_files and not (m.get("downloaded_files") or []):
+                    # Some REST APIs omit attachments from their JSON detail;
+                    # the platform adapter can discover them on the challenge
+                    # page during refresh, so materialize them into the local
+                    # challenge folder even when metadata already exists.
+                    needs_pipeline = True
+                # Some platform APIs expose an empty prompt before release,
+                # while the authenticated challenge page contains the full
+                # task text. If the prior pull rendered the empty-prompt
+                # placeholder, refresh the derived README from the new data.
+                if not needs_pipeline and str(getattr(chall, "description", "") or "").strip():
+                    readme_path = os.path.join(
+                        os.path.dirname(str(_mp)), "challenge", "README.md")
+                    if not os.path.isfile(readme_path):
+                        readme_path = os.path.join(
+                            os.path.dirname(str(_mp)), "README.md")
+                    try:
+                        with open(readme_path, "r", encoding="utf-8") as readme_file:
+                            readme_text = readme_file.read()
+                    except OSError:
+                        readme_text = ""
+                    if not readme_text or "*No description provided.*" in readme_text:
+                        needs_pipeline = True
             if refresh_meta and not needs_pipeline:
                 for df in (m.get("downloaded_files") or []):
                     if not isinstance(df, dict):

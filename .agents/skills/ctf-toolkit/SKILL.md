@@ -1,87 +1,82 @@
 ---
 name: ctf-toolkit
-description: Use when opening or advancing CTF challenges, including shorthand such as pwn5, rev12, Lottery, or terse steering prompts such as next, decoy, and tiến độ. Handles challenge downloading, Burp Suite cookie auto-sync, dynamic containers, parallel AI autosolvers with filter self-recovery, and local flag hoarding.
+description: Use when you manage CTF downloads, challenge workspaces, instances, solver workers, or flag submissions.
 ---
 
-# CTF Toolkit (`ctf` CLI)
+# Use the CTF Toolkit
 
-Treat concise user input as an actionable command packet. Preserve momentum: resolve state, perform the next local evidence-producing action, and report verified results without conversational fluff.
+Use this skill for the local ctf command. Use using-gpt-cli for a direct, long-running GPT-CLI session.
 
-## Mandatory Rule: No Automated Flag Submission
+Work only on a CTF that the user authorized. Use the workspace that belongs to that event.
 
-**Agents, BQA, scripts, and automated workflows MUST NEVER invoke `ctf submit`, `ctf submit --auto`, or `ctf hoard --all`.**
-Found flags must be saved locally with `ctf hoard` or recorded in `script/analysis.md`. The agent reports candidate flags along with deterministic proof for the user to review and submit manually from their own terminal.
+## Read the Current State
 
----
+When the user names a challenge, find its exact workspace. Read metadata.json, challenge/NOTE.md, challenge files, and prior script notes.
 
-## Route First: Prompt-as-Command Routing
+If the target is ambiguous, show the matching challenges and ask which one the user means.
 
-When invoked via `/ctf-toolkit <target>`, `/ctf <target>`, or terse shorthand:
-1. Run or evaluate against `references/routing.md` with strict precedence:
-   `REJECT_CANDIDATE` → `STATUS` → `CONTINUE` → `SELECT` → `HYPOTHESIS` → `CONSTRAINT`.
+Use these prompt actions:
 
-| Normalized Input | Action | Immediate Deterministic Behavior |
-|---|---|---|
-| `pwn5`, `rev12`, `crypto_3`, `Lottery` | `SELECT` | Resolve challenge directory across active workspaces. Read `metadata.json`, `challenge/NOTE.md`, files in `challenge/`, and previous progress in `script/`. Begin triage immediately—**do not ask questions**. |
-| `/ctf-toolkit <target>` | `SELECT` | Same as shorthand selector; explicit slash invocation maps to identical route. |
-| `next`, `nexxt`, `continue`, `tiếp tục` | `CONTINUE` | Load `script/` state and execute the very next uncompleted verification or probe. |
-| `tiến độ`, `tieens ddooj`, `status` | `STATUS` | Emit 4-bullet evidence report: phase, verified facts, next probe, blocker. |
-| `decoy`, `cái này là flag decoy` | `REJECT_CANDIDATE` | Mark candidate rejected in `script/analysis.md`, retain provenance, pivot to next branch. |
-| `có thể đó là hint...` | `HYPOTHESIS` | Record hypothesis and test via deterministic local probe. |
-| `server chỉ connect qua lan`, `dùng mcp` | `CONSTRAINT` | Amend scoped runtime parameters in memory and continue without resetting progress. |
+- next or continue: run the next unfinished check.
+- status or tiến độ: report the phase, last verified fact, next action, and blocker.
+- decoy: mark the active candidate as rejected. Keep its source and reason.
+- a new constraint: apply it to the current task. Keep verified work.
 
-*See [routing.md](references/routing.md) for full precedence rules and resolution scoring.*
+Do not use symbol-only prompts such as ???, >>>>, or ... . State one action and its target.
 
----
+## Use Verified Commands
 
-## Canonical CLI Commands
+The commands below match the current CLI help.
 
-| Action | Command | Key Options |
-|---|---|---|
-| **Auth** | `ctf auth --from-burp -u <URL>` | `--from-burp`, `--show`, `--clear`, `-c <COOKIE>`, `-t <TOKEN>` |
-| **Pull** | `ctf pull -u <URL> -o <DIR>` | `--save-cookie`, `--verify-downloads strict`, `--no-git`, `--bridge` |
-| **Instance**| `ctf instance start --id <ID> -w <WORKSPACE>`| `start`, `stop`, `restart`, `renew` · `--list`, `--auto-extend` |
-| **Solve** | `ctf solve -w <WORKSPACE> --workers 3` | `--workers <N>`, `--per-category`, `--detach`, `--status`, `--stop` |
-| **Hoard** | `ctf hoard <ID> "FLAG{...}"` | `--list`, `--remove <ID>` |
-| **Doctor** | `ctf doctor -u <URL>` · `ctf doctor --runtime` | `-c <COOKIE>`, `-t <TOKEN>`, `-w <WORKSPACE>` |
-| **Theme** | `ctf config theme <THEME>` | `cyberpunk`, `matrix`, `amber`, `exodia`, `dracula`, `tokyo` |
-| **Git** | `ctf git init -d <DIR> --remote-url <URL>` | `status`, `push`, `finish` (merges event branch to main) |
+~~~bash
+ctf auth --from-burp -u <URL>
+ctf pull -u <URL> -o <WORKSPACE> --from-burp --save-cookie
+ctf status -w <WORKSPACE>
+ctf solve -w <WORKSPACE> --ids 1,2 --workers 3
+ctf solve --status
+ctf solve --logs 2
+ctf instance start --id <ID> -w <WORKSPACE>
+ctf instance extend --id <ID> -w <WORKSPACE>
+ctf platform probe <URL>
+ctf submit <ID> '<FLAG>' -w <WORKSPACE>
+~~~
 
----
+Use ctf solve for the toolkit worker queue. Use gpt agent when the user asks for a direct GPT-CLI session.
 
-## Evidence Contract & Workspace Discipline
+The instance actions are start, stop, extend, status, and list. Do not use restart or renew.
 
-- **No Assertions Without Proof**: Never declare a challenge solved without local deterministic reproduction.
-- **Directory Roles**:
-  - `challenge/`: Read-only source artifacts and authoritative `NOTE.md`.
-  - `script/`: Scratch probes, harnesses, logs, and `analysis.md`.
-  - `solver/`: Self-contained, final reproducible `solve.py`.
-- **Candidate States**: Every prospective flag is recorded as `CANDIDATE`, `VERIFIED`, or `REJECTED`.
+The pull command has no --bridge option. The solve command has no --per-category option. Use ctf bridge as a separate command when you need bridge status or control.
 
-*See [evidence.md](references/evidence.md) for complete verification rules.*
+## Keep Challenge Evidence
 
----
+Keep original files in challenge/. Put probes, temporary scripts, logs, and analysis in script/. Put the final reusable solver in solver/.
 
-## Safety Filter Recovery & Context Isolation
+Do not call a challenge solved because a file exists. Run its verifier and record the command and result.
 
-- **Connection Endpoint Sanitization**: Never print raw IPs or wildcard DNS (`.nip.io`) in model prompts; sanitize to local metadata references.
-- **Refusal Inertia & 3-Tier Rescue**:
-  - **Tier 1 (Directed Micro-Prompt)**: `next: continue logic verification` or `/ctf-toolkit next`.
-  - **Tier 2 (Context Rollback)**: Use `/rewind` or prune poisoned refusal turns from conversation history.
-  - **Tier 3 (Math/Logic Isolation)**: Extract formal roadblocks to `math_workspace/` (`TASK.md` + `instance.json`) and invoke the `ctf-ask` skill. Never leak challenge context, URLs, or binaries to Astra.
+For this user's authorized CTF tasks, submit each flag candidate for the active challenge promptly. Submit one challenge and one flag at a time. Do not use --auto unless the user asks for batch submission.
 
-*See [recovery.md](references/recovery.md) for empirical failure mode analysis.*
+Record the exact platform result. If the platform rejects a candidate, send that result to the same GPT-CLI session and continue that challenge. Do not send it to another challenge session.
 
----
+## Keep Files in the Right Place
 
-## Unknown Platform Resolution & Platform Authoring
+When a GPT-CLI session solves work in a clean workspace, ask that same session to return the needed files:
 
-If the platform is not supported or missing (`CTF-PULL-D02`), invoke the `ctf-add-new-platform` skill to create and scaffold the new platform.
+~~~text
+chuyển các file liên quan về đúng vị trí thư mục <path>
+~~~
 
-When encountering an unsupported or new CTF platform (`CTF-PULL-D02`), follow the standard two-path blueprint:
-1. **Path A (Declarative JSON - Zero Python Code)**: Add `ctf_downloader/platforms/definitions/<key>.json` or `.ctf/platforms/<key>.json`.
-2. **Path B (Custom Python Adapter)**: Subclass `BasePlatform` in `ctf_downloader/platforms/<key>.py` with `@register`.
+Check the copied solver and evidence at the canonical path. Keep unrelated files and credentials out.
 
-*See the `ctf-add-new-platform` skill and [platform_authoring.md](references/platform_authoring.md) for full JSON schema references, Python boilerplate templates, and deterministic unit test templates.*
+## Handle Refusals Clearly
 
+State the authorized CTF scope and the real task. A clear formal math model can help solve a math problem. Keep every constraint that affects the result.
+
+Do not change the stated goal to hide it from a safety check. If the model refuses, clarify only missing facts. If it still refuses, stop and report the refusal.
+
+## Read More
+
+- Read references/routing.md for prompt actions and target matching.
+- Read references/evidence.md before you verify or submit a flag.
+- Read references/recovery.md when a tool or worker fails.
+- Read references/platform_authoring.md and use ctf-add-new-platform for a new platform.
 

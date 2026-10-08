@@ -1470,6 +1470,21 @@ class TestPullServiceUIDiscipline(unittest.TestCase):
         self.assertIn("kiểm tra kết nối mạng và cookie đăng nhập", out)
         self.assertIn("-j 1", out)
 
+    def test_total_download_failure_counts_unsuccessful_result_lists(self):
+        fake_platform = self._fake_platform(n_challenges=2)
+
+        with mock.patch.object(self.pull_service.PlatformDetector,
+                               "detect_platform",
+                               return_value=fake_platform), \
+             mock.patch.object(self.pull_service.PullService, "_full_process",
+                               return_value=[{"success": False, "message": "network error"}]):
+            result = self.pull_service.PullService.run(self._config())
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["bqa_error_code"], "CTF-PULL-D06")
+        out = self.stderr_buf.getvalue()
+        self.assertIn("Tải thất bại trên toàn bộ 2/2 challenge", out)
+
     # ---- 2. Incremental update: diff summary +name/-name sorted ----
 
     def _seed_workspace(self):

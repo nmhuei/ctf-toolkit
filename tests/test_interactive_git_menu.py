@@ -15,9 +15,19 @@ def test_workspace(tmp_path):
     return ws
 
 
-def test_main_actions_includes_git():
+def test_main_actions_keep_git_under_settings():
     action_keys = [k for k, _ in _MAIN_ACTIONS_FULL]
-    assert "5" in action_keys or "G" in action_keys
+    assert "5" not in action_keys
+    assert "G" not in action_keys
+    assert "4" in action_keys
+
+    app = CTFInteractiveConsole()
+    with patch("ctf_downloader.interactive_menu.render_hub_menu", return_value="4"), patch.object(
+        app, "_menu_git"
+    ) as menu_git:
+        app._menu_settings()
+
+    menu_git.assert_called_once_with()
 
 
 def test_menu_git_status_and_back(test_workspace):

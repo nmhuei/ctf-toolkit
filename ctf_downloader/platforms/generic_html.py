@@ -1,9 +1,9 @@
 import re
 import urllib.parse
 import requests
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Any, Tuple
 from bs4 import BeautifulSoup
-from .base import BasePlatform, Challenge, CTFInfo
+from .base import BasePlatform, Challenge
 from ..utils.logger import Logger
 from ..extractors.link_extractor import KNOWN_FILE_EXTENSIONS
 from .registry import register

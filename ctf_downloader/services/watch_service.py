@@ -181,6 +181,21 @@ class PollScheduler:
         t["penalty"] = None
         return t["deadline"]
 
+    def expedite(self, task: str, deadline: float) -> bool:
+        """Rút ngắn deadline của đúng một chu kỳ mà không đổi interval.
+
+        Dùng cho deadline nội bộ (retry/boot/restart) của tracker. Không
+        được biến thành polling thường xuyên: chỉ giữ mốc sớm hơn deadline
+        hiện tại và để ``postpone`` tiêu một lần.
+        """
+        t = self._tasks.get(task)
+        if t is None:
+            return False
+        if deadline < t["deadline"]:
+            t["deadline"] = deadline
+            return True
+        return False
+
     def penalize(self, task: str) -> float:
         """Backoff ×2 cap 600s (tick lỗi). Trả effective interval mới.
         Mult floor 1.0 (R3): interval > cap thì tick lỗi KHÔNG được làm
@@ -565,15 +580,21 @@ class WatchStateStore:
         """Lần chót trước khi caller ``unlink``: lockfile VẪN ghi đúng
         ``pid`` VÀ chưa bị thay thế bởi file khác.
 
-        Chốt cửa sổ TOCTOU µs reviewer-c17 giữa re-read pid ↔ unlink:
-        chụp inode TRƯỚC khi đọc pid, đối chiếu ngay TRƯỚC khi trả True
-        (caller unlink liền sau đó). Lệch inode ⇒ ai đó vừa xoá/tạo lại
-        file dù nội dung có như cũ ⇒ bỏ lượt, kỳ sau thử lại."""
-        ino_before = self._stat_ino(self.lock_path)
-        if ino_before is None or self._read_lock_pid() != pid:
+        Giữ file descriptor mở trong lúc đọc và re-stat đường dẫn. Inode
+        gốc được pin trong lúc kiểm tra nên unlink/tạo lại không thể được
+        cấp lại cùng inode trong chính khoảng so sánh này. Lệch inode ⇒ bỏ
+        lượt, kỳ sau thử lại.
+
+        Cửa sổ rất nhỏ giữa lần re-stat cuối và caller unlink vẫn còn; đây là
+        giới hạn của thao tác unlink theo path trên các nền tảng hỗ trợ."""
+        try:
+            with open(self.lock_path, "r", encoding="utf-8") as lock_file:
+                ino_open = os.fstat(lock_file.fileno()).st_ino
+                if int((lock_file.read() or "0").strip() or 0) != pid:
+                    return False
+                return self._stat_ino(self.lock_path) == ino_open
+        except (OSError, TypeError, ValueError):
             return False
-        ino_after = self._stat_ino(self.lock_path)
-        return ino_after == ino_before
 
     def _read_lock_pid(self) -> int:
         try:
@@ -582,10 +603,12 @@ class WatchStateStore:
         except Exception:
             return 0
 
-    def release_lock(self) -> None:
+    def release_lock(self, force: bool = False) -> None:
         try:
             if os.path.exists(self.lock_path):
-                os.unlink(self.lock_path)
+                pid = self._read_lock_pid()
+                if force or pid in (0, os.getpid()):
+                    os.unlink(self.lock_path)
         except OSError:
             pass
 
@@ -789,6 +812,7 @@ class WatchService:
         self.cfg_store = EventWindowConfigStore(self.workspace_path)
         self.platform = None
         self.keepalive = None
+        self.keepalive_init_error = None
         self.guard: Optional[WindowGuard] = None
         self.times = None
         self.state: Dict[str, Any] = {}
@@ -920,8 +944,11 @@ class WatchService:
                                   token=self.token)
             self.keepalive = InstanceKeepAlive(
                 svc, repo=self.svc_repo(svc), practice_mode=self.practice_mode)
-        except Exception:
+        except Exception as exc:
             self.keepalive = None
+            self.keepalive_init_error = f"InstanceKeepAlive initialization failed: {exc}"
+        else:
+            self.keepalive_init_error = None
 
         self._open_live()
         try:
@@ -1015,6 +1042,8 @@ class WatchService:
                 lines.extend(out or [])
                 self.scheduler.reward(task)
                 self.scheduler.postpone(task)
+                if task == "keepalive":
+                    self._expedite_keepalive_deadline()
             except KeyboardInterrupt:
                 raise
             except Exception as exc:
@@ -1127,11 +1156,10 @@ class WatchService:
     # Task: notices 📢 (best-effort, CTFd notifications API)
     # ------------------------------------------------------------------ #
     def _tick_notices(self, window_active: bool = True) -> List[str]:
-        ptype = getattr(getattr(self.platform, "ctf_info", None), "platform_type", "")
-        if ptype != "ctfd":
-            return []     # platform khác: chưa có endpoint công khai ổn định
-        # Spec §5: ETag/304 cache per endpoint — gửi lại If-None-Match đã lưu
-        url = f"{self.platform.base_url}/api/v1/notices"
+        if not getattr(self.platform, "supports_notices", False):
+            return []
+        endpoint = getattr(self.platform, "notices_endpoint", None) or "/api/v1/notices"
+        url = endpoint if endpoint.startswith("http") else f"{self.platform.base_url.rstrip('/')}/{endpoint.lstrip('/')}"
         etag_cache = self.state.setdefault("etag_cache", {})
         req_headers = {}
         saved_etag = etag_cache.get("notices")
@@ -1402,8 +1430,43 @@ class WatchService:
     # ------------------------------------------------------------------ #
     # Task: keep-alive ♻️ (spec §9)
     # ------------------------------------------------------------------ #
+    def _expedite_keepalive_deadline(self) -> None:
+        """Đánh thức scheduler sớm cho deadline nội bộ khẩn của tracker.
+
+        Đây chỉ là wake-up hint: base keepalive 60s vẫn là interval gốc,
+        không tạo thêm vòng ALIVE polling. Chỉ các pha cần phản ứng nhanh
+        mới được xem xét (retry, boot, restart).
+        """
+        if self.keepalive is None:
+            return
+        now_wall = time.time()
+        now_mono = time.monotonic()
+        for tracker in (getattr(self.keepalive, "trackers", {}) or {}).values():
+            state = getattr(tracker, "state", None)
+            deadline = None
+            if state == "RENEW_FAILED":
+                deadline = getattr(tracker, "phase_deadline", None)
+            elif state == "RESTARTING":
+                deadline = getattr(tracker, "phase_deadline", None)
+            elif state == "RESTART_BACKOFF":
+                deadline = getattr(tracker, "backoff_deadline", None)
+            elif state == "DUE_SOON":
+                deadline = now_mono + float(tracker.next_poll_in())
+            if deadline is None:
+                continue
+            # Tracker deadlines are monotonic; PollScheduler deadlines are
+            # wall-clock so they survive suspend/resume.
+            delay = float(deadline) - now_mono
+            if delay > 0:
+                self.scheduler.expedite("keepalive", now_wall + delay)
+
     def _tick_keepalive(self, window_active: bool = True) -> List[str]:
         if self.keepalive is None:
+            init_error = getattr(self, "keepalive_init_error", None)
+            if init_error is not None:
+                Logger.warning(
+                    f"WatchService keepalive unavailable: {init_error}")
+                self.keepalive_init_error = None
             return []
         events = self.keepalive.tick_all(window_active=window_active)
         level_icon = {"info": "", "warning": "⚠️ ", "error": "❌ ",
@@ -1492,8 +1555,11 @@ class WatchService:
                         f"{getattr(tr, 'state', '?')} · còn ")
                     line.append(fmt_countdown(remaining))
                     head.append_text(line)
-                if getattr(tr, "platform_kind", "") != "gzctf":
-                    left = (5 - tr.renew_count
+                max_renews = getattr(tr, "max_renews", None)
+                if max_renews is None and getattr(tr, "platform_kind", "") == "whale":
+                    max_renews = 5
+                if max_renews is not None:
+                    left = (max_renews - tr.renew_count
                             if hasattr(tr, "renew_count") else "?")
                     if isinstance(left, int) and left <= 1:
                         head.append(" 🔴", style=ERROR)

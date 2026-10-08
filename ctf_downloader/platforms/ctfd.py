@@ -6,12 +6,11 @@ import requests
 from typing import List, Dict, Any, Optional, Tuple
 from bs4 import BeautifulSoup
 from rich.markup import escape
-from .base import (BasePlatform, Challenge, CTFInfo, EventTimes,
+from .base import (BasePlatform, Challenge, EventTimes,
                    PlatformRegisterUnsupported, SolveAttribution, epoch_ms,
                    normalize_epoch_to_utc, safe_get_json)
 from ..utils.http_client import CloudflareChallengeError
 from ..utils.logger import Logger
-from ..utils.sanitize import sanitize_filename
 from .registry import register
 
 
@@ -262,6 +261,28 @@ class CTFdPlatform(BasePlatform):
 
         Logger.error("Xác thực thất bại trên nền tảng CTFd. Hãy kiểm tra lại Cookie hoặc Token.")
         return False
+
+    supports_notices: bool = True
+    notices_endpoint: Optional[str] = "/api/v1/notices"
+    min_instance_op_gap_seconds: float = 61.0
+    max_instance_renews: Optional[int] = 5
+    restart_rotates_flag: bool = True
+    return_bool_verify: bool = True
+
+    def extract_verify_payload(self, url: str) -> Optional[Dict[str, Any]]:
+        """Extract verification payload for CTFd confirmation link."""
+        parsed = urllib.parse.urlparse(url)
+        if "/confirm/" in parsed.path.lower():
+            return {"url": url}
+        return None
+
+    def verify_email(self, session: Any, payload: Any,
+                     base_url: Optional[str] = None) -> Tuple[bool, Dict[str, Any]]:
+        """Verify CTFd email through GET request to confirmation link."""
+        target_url = payload.get("url") if isinstance(payload, dict) else str(payload)
+        resp = session.get(target_url, timeout=20)
+        status = getattr(resp, "status_code", 0)
+        return (status == 200), {"status_code": status}
 
     def register(self, *, username: str, email: str, password: str,
                  verify_email_hook=None) -> Dict[str, Any]:

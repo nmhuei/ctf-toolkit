@@ -24,7 +24,7 @@ from importlib import resources
 from hashlib import sha256
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Optional, Sequence, Tuple
+from typing import Any, Callable, Optional, Sequence, Tuple
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .utils.agy_resolver import extract_json_payload, resolve_agy_binary

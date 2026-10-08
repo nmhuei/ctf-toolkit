@@ -383,6 +383,18 @@ def _solver_table(
         ]
         aligns = ["left", "right", "left", "left", "left", "left"]
         gaps = [1, 2, 2, 2, 2, 2]
+    elif cols < 130:
+        name_limit = 20
+        hdr_cells = [
+            Text(""),
+            Text("ID", style=_FAINT_COLOR),
+            Text("CHALLENGE", style=_FAINT_COLOR),
+            Text("STATE", style=_FAINT_COLOR),
+            Text("OUTCOME", style=_FAINT_COLOR),
+            Text("PHASE", style=_FAINT_COLOR),
+        ]
+        aligns = ["left", "right", "left", "left", "left", "left"]
+        gaps = [1, 2, 2, 2, 2, 2]
     else:
         name_limit = 24
         hdr_cells = [
@@ -393,10 +405,12 @@ def _solver_table(
             Text("OUTCOME", style=_FAINT_COLOR),
             Text("SRC", style=_FAINT_COLOR),
             Text("INST", style=_FAINT_COLOR),
+            Text("AGE", style=_FAINT_COLOR),
+            Text("MESSAGE", style=_FAINT_COLOR),
             Text("PHASE", style=_FAINT_COLOR),
         ]
-        aligns = ["left", "right", "left", "left", "left", "center", "center", "left"]
-        gaps = [1, 2, 2, 2, 2, 2, 2, 2]
+        aligns = ["left", "right", "left", "left", "left", "center", "center", "right", "left", "left"]
+        gaps = [1, 2, 2, 2, 2, 2, 2, 2, 2, 2]
 
     all_raw_rows = [hdr_cells]
     cat_rows_map: dict[str, list[list[Text]]] = {}
@@ -423,6 +437,22 @@ def _solver_table(
 
         phase = str(state.get("phase") or "-")
         msg = str(state.get("message") or "")
+
+        # Live solver telemetry: show the durable worker-state heartbeat, not a guessed UI label.
+        telemetry = str(state.get("telemetry") or msg or "")
+        if len(telemetry) > 42:
+            telemetry = telemetry[:39] + "..."
+        elapsed = "-"
+        if value in ("running", "starting") and state.get("started_at"):
+            try:
+                from datetime import datetime, timezone
+                started = datetime.fromisoformat(str(state["started_at"]).replace("Z", "+00:00"))
+                secs = max(0, int((datetime.now(timezone.utc) - started).total_seconds()))
+                mm, ss = divmod(secs, 60)
+                hh, mm = divmod(mm, 60)
+                elapsed = f"{hh:02d}:{mm:02d}:{ss:02d}" if hh else f"{mm:02d}:{ss:02d}"
+            except Exception:
+                pass
 
         if flag:
             phase_text = Text(f"★ {_format_flag_compact(flag)}", style=_SOLVED_COLOR)
@@ -473,7 +503,7 @@ def _solver_table(
                 name_cell,
                 Text(shown, style=style),
             ]
-        elif cols < 90:
+        elif cols < 130:
             row_cells = [
                 glyph,
                 Text(str(job.display_id), style=_FAINT_COLOR),
@@ -491,6 +521,8 @@ def _solver_table(
                 Text(shown_outcome, style=outcome_style),
                 src_cell,
                 inst_cell,
+                Text(elapsed, style=_MUTED_COLOR),
+                Text(telemetry, style=_WARN_COLOR if value in ("running", "starting") else _FAINT_COLOR),
                 phase_text,
             ]
         all_raw_rows.append(row_cells)
@@ -572,22 +604,30 @@ def _make_solver_overview_panel(service: SolverService, jobs: list[SolverJob] | 
     pct = (solved / total * 100) if total > 0 else 0
     m = meter(pct, 20, SOLVE_RAMP)
 
+    narrow = StatusService._tty_columns() < 70
     row = Text()
-    row.append_text(m)
-    row.append(f"  {solved}/{total} solved", style=f"bold {FG_BASE}")
-    row.append(f" · {pct:.1f}%", style=_SOLVED_COLOR)
-    row.append(" · ", style=_FAINT_COLOR)
-    row.append(f"{hoarded} hoarded", style=f"bold {_SOLVED_COLOR}")
-    row.append(" · ", style=_FAINT_COLOR)
-    worker_s = "s" if active != 1 else ""
-    worker_style = f"bold {_WARN_COLOR}" if active > 0 else _FAINT_COLOR
-    row.append(f"{active} worker{worker_s} running", style=worker_style)
+    if narrow:
+        row.append(f"{solved}/{total} solved", style=f"bold {FG_BASE}")
+        row.append(f" · {pct:.0f}%", style=_SOLVED_COLOR)
+        row.append(f" · {active} active", style=_WARN_COLOR if active else _FAINT_COLOR)
+        title = " SOLVER RADAR "
+    else:
+        row.append_text(m)
+        row.append(f"  {solved}/{total} solved", style=f"bold {FG_BASE}")
+        row.append(f" · {pct:.1f}%", style=_SOLVED_COLOR)
+        row.append(" · ", style=_FAINT_COLOR)
+        row.append(f"{hoarded} hoarded", style=f"bold {_SOLVED_COLOR}")
+        row.append(" · ", style=_FAINT_COLOR)
+        worker_s = "s" if active != 1 else ""
+        worker_style = f"bold {_WARN_COLOR}" if active > 0 else _FAINT_COLOR
+        row.append(f"{active} worker{worker_s} running", style=worker_style)
+        title = " SUPERBQA SOLVER · RADAR "
 
     return Panel(
         row,
         box=box.ROUNDED,
         border_style=ACCENT_DEEP,
-        title=Text(" SUPERBQA SOLVER · RADAR ", style=f"bold {FG_BASE}"),
+        title=Text(title, style=f"bold {FG_BASE}"),
         expand=True,
         padding=(0, 1),
     )

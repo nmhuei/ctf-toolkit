@@ -6,8 +6,8 @@ from typing import List, Dict, Any, Optional, Tuple
 from bs4 import BeautifulSoup
 from rich.markup import escape
 from .base import (
-    BasePlatform, Challenge, CTFInfo, EventTimes, Verdict,
-    SolveAttribution, epoch_ms, safe_get_json
+    BasePlatform, Challenge, Verdict,
+    SolveAttribution, epoch_ms
 )
 from ..extractors.link_extractor import LinkExtractor
 from ..utils.logger import Logger

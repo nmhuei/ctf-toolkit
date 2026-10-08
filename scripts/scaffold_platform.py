@@ -85,20 +85,6 @@ def scaffold_python(key: str, label: str) -> tuple[Path, Path]:
     out_py.write_text(content, encoding="utf-8")
     print(f"Created adapter module: {out_py}")
 
-    # Register in registry.py if not present
-    registry_file = PLATFORMS_DIR / "registry.py"
-    reg_text = registry_file.read_text(encoding="utf-8")
-    import_match = re.search(r"from \. import (.*?)(\n|$)", reg_text)
-    if import_match and key not in import_match.group(1):
-        old_import = import_match.group(0)
-        items = [x.strip() for x in import_match.group(1).replace("# noqa: E402,F401", "").split(",") if x.strip()]
-        items.append(key)
-        items = sorted(set(items))
-        new_import = f"from . import {', '.join(items)}  # noqa: E402,F401\n"
-        reg_text = reg_text.replace(old_import, new_import)
-        registry_file.write_text(reg_text, encoding="utf-8")
-        print(f"Registered '{key}' in {registry_file}")
-
     # Generate unit test
     tpl_test = TEMPLATES_DIR / "platform_test.template.py"
     test_content = (

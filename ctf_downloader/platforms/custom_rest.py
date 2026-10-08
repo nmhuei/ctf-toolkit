@@ -1,12 +1,12 @@
 import re
 import urllib.parse
+import unicodedata
 import requests
 from typing import List, Dict, Any, Optional, Tuple
 from bs4 import BeautifulSoup
 from rich.markup import escape
-from .base import BasePlatform, Challenge, CTFInfo
+from .base import BasePlatform, Challenge
 from ..utils.logger import Logger
-from ..utils.sanitize import sanitize_filename
 from .registry import register
 
 
@@ -40,6 +40,157 @@ class CustomRESTPlatform(BasePlatform):
             domain = urllib.parse.urlparse(self.base_url).netloc
             clean_dom = domain.replace("ctf.", "").replace("www.", "").replace(".org", "").replace(".com", "").replace(".", "_")
             self.ctf_info.title = f"{clean_dom.capitalize()}_CTF"
+
+    def _extract_open_target_url(self, description: str) -> Optional[str]:
+        """Return the URL behind an ``Open Target`` link in challenge HTML.
+
+        Some REST platforms expose the challenge prompt as HTML and render
+        the actual target only as a button in that prompt. Preserve the target
+        as connection information; it is a live service URL, not an attachment
+        to download as a challenge file.
+        """
+        if not description or "<" not in description:
+            return None
+
+        try:
+            soup = BeautifulSoup(description, "html.parser")
+            for anchor in soup.find_all("a", href=True):
+                label = " ".join(anchor.get_text(" ", strip=True).split()).casefold()
+                if label != "open target":
+                    continue
+
+                href = anchor["href"].strip()
+                if not href or href.startswith(("#", "javascript:", "mailto:")):
+                    continue
+                target_url = self.get_full_file_url(href)
+                if urllib.parse.urlparse(target_url).scheme in {"http", "https"}:
+                    return target_url
+        except Exception:
+            return None
+
+        return None
+
+    def _fetch_challenge_page(self, name: str, item: Dict[str, Any],
+                              detail_data: Dict[str, Any]) -> Optional[Tuple[str, str]]:
+        """Fetch the platform's challenge page when its API omits prompt data."""
+        page_path = (
+            detail_data.get("challenge_page_url")
+            or item.get("challenge_page_url")
+            or detail_data.get("page_url")
+            or item.get("page_url")
+            # Several platforms use target_url for their internal challenge
+            # page route; the actual external target is linked inside it.
+            or detail_data.get("target_url")
+            or item.get("target_url")
+        )
+        if not page_path:
+            # Prefer the platform's canonical route key. Display names are
+            # not guaranteed to map to URL slugs (for example, a challenge
+            # named "Frequency and Consequence" can use the slug "misc2").
+            slug = (
+                detail_data.get("slug")
+                or item.get("slug")
+            )
+            if not slug:
+                ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+                slug = re.sub(r"[^a-z0-9]+", "-", ascii_name.casefold()).strip("-")
+            if not slug:
+                return None
+            page_path = f"/challenges/{urllib.parse.quote(str(slug).strip('/'))}/"
+
+        page_url = self.get_full_file_url(str(page_path).strip())
+        page = urllib.parse.urlparse(page_url)
+        platform = urllib.parse.urlparse(self.base_url)
+        if page.scheme not in {"http", "https"} or page.netloc != platform.netloc:
+            return None
+
+        try:
+            response = self.session.get(page_url, timeout=10)
+            if response.status_code == 200 and response.text:
+                return response.text, response.url or page_url
+        except Exception:
+            pass
+        return None
+
+    def _extract_page_files(self, page_html: str, page_url: str) -> List[Tuple[str, str]]:
+        """Return same-page artifact links omitted from the REST challenge API."""
+        if not page_html or not page_url:
+            return []
+
+        try:
+            soup = BeautifulSoup(page_html, "html.parser")
+            page = urllib.parse.urlparse(page_url)
+            page_prefix = page.path.rstrip("/") + "/"
+            platform_host = urllib.parse.urlparse(self.base_url).netloc
+            files: List[Tuple[str, str]] = []
+            seen = set()
+
+            for anchor in soup.find_all("a", href=True):
+                href = anchor["href"].strip()
+                if not href or href.startswith(("#", "javascript:", "mailto:")):
+                    continue
+                file_url = urllib.parse.urljoin(page_url, href)
+                parsed = urllib.parse.urlparse(file_url)
+                if (parsed.scheme not in {"http", "https"}
+                        or parsed.netloc != platform_host
+                        or not parsed.path.startswith(page_prefix)):
+                    continue
+
+                path_tail = parsed.path[len(page_prefix):].strip("/")
+                if not path_tail:
+                    continue
+                label = " ".join(anchor.get_text(" ", strip=True).split())
+                filename_match = re.search(r"[A-Za-z0-9_.-]+\.[A-Za-z0-9]{1,8}", label)
+                filename = (
+                    filename_match.group(0)
+                    if filename_match
+                    else urllib.parse.unquote(path_tail.rsplit("/", 1)[-1])
+                )
+                key = (file_url, filename)
+                if key not in seen:
+                    seen.add(key)
+                    files.append(key)
+            return files
+        except Exception:
+            return []
+
+    def _extract_target_url_from_page(self, page_html: str,
+                                     page_url: Optional[str] = None) -> Optional[str]:
+        """Find the external link in the challenge page's Target section."""
+        target_url = self._extract_open_target_url(page_html)
+        if target_url:
+            return target_url
+        if not page_html:
+            return None
+
+        try:
+            soup = BeautifulSoup(page_html, "html.parser")
+            platform_host = urllib.parse.urlparse(self.base_url).netloc
+            for card in soup.find_all(class_="card"):
+                heading = card.find(["h1", "h2", "h3", "h4", "h5"])
+                if not heading or " ".join(heading.get_text(" ", strip=True).split()).casefold() != "target":
+                    continue
+                for anchor in card.find_all("a", href=True):
+                    target_url = urllib.parse.urljoin(
+                        page_url or self.base_url, anchor["href"].strip())
+                    parsed = urllib.parse.urlparse(target_url)
+                    if parsed.scheme in {"http", "https"} and parsed.netloc != platform_host:
+                        return target_url
+        except Exception:
+            return None
+        return None
+
+    @staticmethod
+    def _page_text(page_html: str) -> str:
+        """Get readable challenge-page text without navigation and scripts."""
+        soup = BeautifulSoup(page_html, "html.parser")
+        for element in soup.find_all(["script", "style", "nav", "header", "footer", "noscript"]):
+            element.decompose()
+        cards = soup.find_all(class_="card")
+        if cards:
+            return "\n\n".join(card.get_text("\n", strip=True) for card in cards)
+        content = soup.find("main") or soup.body or soup
+        return content.get_text("\n", strip=True)
 
     def authenticate(self) -> bool:
         """
@@ -199,6 +350,37 @@ class CustomRESTPlatform(BasePlatform):
                 except Exception:
                     pass
 
+                # Some platforms only render the target button on the challenge
+                # page, while their API omits both the prompt and target URL.
+                page_html = None
+                challenge_page_url = None
+                open_target_url = self._extract_open_target_url(description)
+                if not open_target_url:
+                    page_result = self._fetch_challenge_page(name, item, detail_data)
+                    if page_result:
+                        page_html, challenge_page_url = page_result
+                    open_target_url = self._extract_target_url_from_page(
+                        page_html or "", challenge_page_url)
+                if open_target_url:
+                    conn_info = open_target_url
+                if page_html:
+                    description = self._page_text(page_html)
+
+                # target_url may name the platform's own challenge page rather
+                # than the live service. Keep such routes for fetching content,
+                # but don't publish them as connection instructions.
+                if conn_info:
+                    # Only discard an absolute platform page URL. Relative target
+                    # routes (for example "/challenges/foo/") are meaningful
+                    # connection hints returned by some REST APIs.
+                    raw_connection = str(conn_info)
+                    parsed_connection = urllib.parse.urlparse(raw_connection)
+                    base_host = urllib.parse.urlparse(self.base_url).netloc
+                    if (parsed_connection.scheme in {"http", "https"}
+                            and parsed_connection.netloc == base_host
+                            and parsed_connection.path.rstrip("/").startswith("/challenges/")):
+                        conn_info = None
+
                 # Parse files/attachments
                 files_list = []
                 raw_files = (
@@ -217,6 +399,14 @@ class CustomRESTPlatform(BasePlatform):
                             f_name = f.get("name") or (f_url.split("/")[-1] if f_url else "attachment")
                             if f_url:
                                 files_list.append((self.get_full_file_url(f_url), f_name))
+
+                if page_html and challenge_page_url:
+                    known_urls = {file_url for file_url, _ in files_list}
+                    for file_url, file_name in self._extract_page_files(
+                            page_html, challenge_page_url):
+                        if file_url not in known_urls:
+                            files_list.append((file_url, file_name))
+                            known_urls.add(file_url)
 
                 hints_list = []
                 raw_hints = detail_data.get("hints") or item.get("hints") or []

@@ -523,17 +523,18 @@ def test_d6_lock_live_pid_refuse_stale_takeover(tmp_path):
     # by class attribute access. Restoring the unwrapped function turns a
     # staticmethod into a bound instance method and pollutes later test order.
     orig_alive = WatchStateStore.__dict__["_pid_alive"]
-    orig_read = store._read_lock_pid
     try:
+        # Ghi stale PID thật vào lock để verifier có thể kiểm tra dữ liệu
+        # trên descriptor gốc (không thay thế seam đọc nội dung).
+        with open(store.lock_path, "w", encoding="utf-8") as lock_file:
+            lock_file.write("987654")
         WatchStateStore._pid_alive = staticmethod(lambda pid: True)
-        store._read_lock_pid = lambda: 987654
         assert store.acquire_lock() is False
         # stale pid -> chiếm lại
         WatchStateStore._pid_alive = staticmethod(lambda pid: False)
         assert store.acquire_lock() is True
     finally:
         WatchStateStore._pid_alive = orig_alive
-        store._read_lock_pid = orig_read
         store.release_lock()
 
 

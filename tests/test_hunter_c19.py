@@ -120,6 +120,11 @@ class FakeDL(pull_service.DownloadManager):
 
     calls = []
 
+    def plan_consents(self, urls):
+        # C19-M2 chỉ kiểm tra metadata rename; bỏ preflight HEAD để test fake
+        # không phụ thuộc DNS/mạng bên ngoài.
+        del urls
+
     def download_challenge_files(self, files=None, extracted_links=None,
                                  dest_dir=None, download_third_party=True):
         type(self).calls.append((list(files or []), dest_dir))
@@ -301,11 +306,14 @@ class TestC19M2RenameUpdate(unittest.TestCase):
         shutil.rmtree(self._tmp, ignore_errors=True)
 
     def _meta_by_id(self, cid, exclude=None):
+        from ctf_downloader.storage.workspace_repo import is_superseded
+
         for mp in self.repo.iter_challenges():
             if exclude and os.path.abspath(mp) == os.path.abspath(exclude):
                 continue
             m = self.repo.read_metadata(mp)
-            if m and str(m.get("id")) == str(cid):
+            if (m and not is_superseded(m)
+                    and str(m.get("id")) == str(cid)):
                 return mp
         return None
 

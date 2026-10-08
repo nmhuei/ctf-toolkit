@@ -6,7 +6,7 @@ import urllib.parse
 import requests
 from typing import List, Dict, Any, Optional, Tuple
 from rich.markup import escape
-from .base import (BasePlatform, Challenge, CTFInfo, EventTimes,
+from .base import (BasePlatform, Challenge, EventTimes,
                    PlatformRegisterUnsupported, SolveAttribution, epoch_ms,
                    normalize_epoch_to_utc, safe_get_json)
 from ..utils.gzctf_crypto import GZCTFCryptoError, encrypt_api_data
@@ -491,6 +491,46 @@ class GZCTFPlatform(BasePlatform):
             Logger.warning("Không xác định được game_id từ URL (vd: https://host/games/<id>/challenges). Một số tính năng sẽ bị giới hạn.")
 
         return True
+
+    supports_notices: bool = False
+    notices_endpoint: Optional[str] = None
+    min_instance_op_gap_seconds: float = 0.0
+    max_instance_renews: Optional[int] = None
+    restart_rotates_flag: bool = False
+    return_bool_verify: bool = False
+
+    def extract_verify_payload(self, url: str) -> Optional[Dict[str, Any]]:
+        """Extract verification token and email from GZCTF confirmation link."""
+        parsed = urllib.parse.urlparse(url)
+        path = parsed.path.rstrip("/").lower()
+        if path.endswith("/account/verify"):
+            query = urllib.parse.parse_qs(parsed.query)
+            token = (query.get("token") or [""])[0]
+            email = (query.get("email") or [""])[0]
+            if token and email:
+                return {"url": url, "token": token, "email": email}
+        return None
+
+    def verify_email(self, session: Any, payload: Any,
+                     base_url: Optional[str] = None) -> Tuple[bool, Dict[str, Any]]:
+        """Verify GZCTF email via POST to /api/account/verify."""
+        verify_base = (base_url or getattr(self, "origin", None) or self.base_url or "").rstrip("/")
+        token = payload.get("token") if isinstance(payload, dict) else ""
+        email = payload.get("email") if isinstance(payload, dict) else ""
+        resp = session.post(
+            f"{verify_base}/api/account/verify",
+            json={"token": token, "email": email},
+            timeout=20,
+        )
+        ok = getattr(resp, "status_code", 0) == 200
+        verify_data: Dict[str, Any] = {}
+        try:
+            parsed = resp.json() or {}
+            if isinstance(parsed, dict):
+                verify_data = parsed
+        except Exception:
+            pass
+        return ok, verify_data
 
     def register(self, *, username: str, email: str, password: str,
                  verify_email_hook=None) -> Dict[str, Any]:

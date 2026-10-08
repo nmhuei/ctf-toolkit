@@ -297,7 +297,7 @@ class InstanceService:
                 import time
                 time.sleep(1.5)
                 st = self.platform.get_instance_status(challenge_id)
-                if st.get('entry'):
+                if isinstance(st, dict) and st.get('entry'):
                     entry = st.get('entry')
                     time_left = st.get('time_left') or time_left
 
@@ -354,7 +354,7 @@ class InstanceService:
         if success:
             Logger.success(f'Đã gia hạn container cho {name}: {msg}')
             st = self.platform.get_instance_status(challenge_id)
-            if st.get('status') == 'running':
+            if isinstance(st, dict) and st.get('status') == 'running':
                 self._update_local_instance_info(challenge_id, st.get('entry'), st.get('time_left'), status='running')
             self.last_diagnostic = None
         else:
@@ -370,6 +370,13 @@ class InstanceService:
 
     def get_status(self, challenge_id: Any) -> Dict[str, Any]:
         st = self.platform.get_instance_status(challenge_id)
+        if not isinstance(st, dict):
+            return {
+                "status": "unknown",
+                "entry": None,
+                "time_left": None,
+                "reason": "invalid_response",
+            }
         if st.get('status') == 'running' and st.get('entry'):
             self._update_local_instance_info(challenge_id, st.get('entry'), st.get('time_left'), status='running')
         elif st.get('status') == 'stopped':
@@ -433,7 +440,7 @@ class InstanceService:
                 return
 
         print("\nHành động:")
-        print('  [1] Khởi động / Gia hạn container')
+        print('  [1] Khởi động container')
         print('  [2] Xem trạng thái container')
         print('  [3] Gia hạn thời lượng container')
         print('  [4] Dừng / Hủy container')
@@ -520,18 +527,30 @@ class InstanceService:
 
                 root = meta_path.parent
 
-                # Update writeup/README.md or README.md
-                for doc_rel in [root / 'writeup' / 'README.md', root / 'README.md']:
+                # Update challenge/README.md, writeup/README.md, or README.md
+                for doc_rel in [root / 'challenge' / 'README.md', root / 'writeup' / 'README.md', root / 'README.md']:
                     if doc_rel.exists() and entry:
                         try:
                             doc_text = doc_rel.read_text(encoding='utf-8')
 
-                            # Update Target Connection (anchor đầu dòng + count=1)
+                            # Update Target Connection in writeup/README (anchor đầu dòng + count=1)
                             if 'Target Connection:' in doc_text:
                                 doc_text = re.sub(
                                     r'^-\s*Target Connection:\s*`?[^`\n]+`?',
                                     TARGET_CONNECTION_FMT.format(info=entry),
                                     doc_text, count=1, flags=re.M,
+                                )
+                            elif '## 🔌 Connection / Service' in doc_text:
+                                doc_text = re.sub(
+                                    r'## 🔌 Connection / Service\s*\n```bash\n[^`]*?\n```',
+                                    f'## 🔌 Connection / Service\n\n```bash\n{entry}\n```',
+                                    doc_text, count=1, flags=re.M,
+                                )
+                            elif '## 📝 Description' in doc_text:
+                                doc_text = doc_text.replace(
+                                    '## 📝 Description',
+                                    f'## 🔌 Connection / Service\n\n```bash\n{entry}\n```\n\n## 📝 Description',
+                                    1,
                                 )
                             doc_rel.write_text(doc_text, encoding='utf-8')
                         except Exception:
@@ -554,18 +573,39 @@ class InstanceService:
                                 f'default="{entry}"',
                                 solve_text, count=1,
                             )
-                        elif ':' in entry and not entry.startswith('http'):
-                            h, p = entry.split(':')
-                            solve_text = re.sub(
-                                r'^HOST\s*=\s*["\'][^"\']+["\']',
-                                f'HOST = "{h}"',
-                                solve_text, count=1, flags=re.M,
-                            )
-                            solve_text = re.sub(
-                                r'^PORT\s*=\s*\d+',
-                                f'PORT = {p}',
-                                solve_text, count=1, flags=re.M,
-                            )
+                        else:
+                            parsed_hp = parse_host_port(entry)
+                            if not parsed_hp and entry.startswith(('nc ', 'ncat ')):
+                                parts = entry.split()
+                                if len(parts) >= 3 and parts[-1].isdigit():
+                                    parsed_hp = parse_host_port(f"{parts[-2]}:{parts[-1]}")
+                            if parsed_hp:
+                                h, p = parsed_hp
+                                if re.search(r'^DEFAULT_HOST\s*=', solve_text, flags=re.M):
+                                    solve_text = re.sub(
+                                        r'^DEFAULT_HOST\s*=\s*["\'][^"\']+["\']',
+                                        f'DEFAULT_HOST = "{h}"',
+                                        solve_text, count=1, flags=re.M,
+                                    )
+                                elif re.search(r'^HOST\s*=', solve_text, flags=re.M):
+                                    solve_text = re.sub(
+                                        r'^HOST\s*=\s*["\'][^"\']+["\']',
+                                        f'HOST = "{h}"',
+                                        solve_text, count=1, flags=re.M,
+                                    )
+
+                                if re.search(r'^DEFAULT_PORT\s*=', solve_text, flags=re.M):
+                                    solve_text = re.sub(
+                                        r'^DEFAULT_PORT\s*=\s*\d+',
+                                        f'DEFAULT_PORT = {p}',
+                                        solve_text, count=1, flags=re.M,
+                                    )
+                                elif re.search(r'^PORT\s*=', solve_text, flags=re.M):
+                                    solve_text = re.sub(
+                                        r'^PORT\s*=\s*\d+',
+                                        f'PORT = {p}',
+                                        solve_text, count=1, flags=re.M,
+                                    )
 
                         solve_path.write_text(solve_text, encoding='utf-8')
                     except Exception:

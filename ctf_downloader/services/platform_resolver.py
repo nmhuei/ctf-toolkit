@@ -14,7 +14,7 @@ Trả về `(session, platform, info)` để caller tái dùng session/info.
 """
 
 from pathlib import Path
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple
 
 from ..platforms.base import BasePlatform
 from ..platforms.capabilities import PlatformInfo
@@ -31,13 +31,15 @@ class PlatformResolver:
     @staticmethod
     def for_workspace(repo, cookie: Optional[str] = None,
                       token: Optional[str] = None,
-                      workspace_path: Optional[str | Path] = None) -> Tuple[object, BasePlatform, PlatformInfo]:
+                      workspace_path: Optional[str | Path] = None,
+                      url: Optional[str] = None) -> Tuple[object, BasePlatform, PlatformInfo]:
         """
         Args:
             repo: object WorkspaceRepo exposing `read_challenges()` và
                   `resolve_platform_url()`.
             cookie / token: auth tùy chọn, gắn vào session tạo mới.
             workspace_path: đường dẫn workspace tùy chọn để đồng bộ schema.
+            url: URL nền tảng tùy chọn (nếu caller đã có sẵn).
         Returns:
             (session, platform_instance, PlatformInfo)
         Raises:
@@ -47,8 +49,9 @@ class PlatformResolver:
         data = read_challenges() if callable(read_challenges) else {}
         ctf_info = (data or {}).get("ctf_info") or {}
 
-        resolve_url = getattr(repo, "resolve_platform_url", None)
-        url = resolve_url() if callable(resolve_url) else None
+        if not url:
+            resolve_url = getattr(repo, "resolve_platform_url", None)
+            url = resolve_url() if callable(resolve_url) else None
         if not url:
             raise ValueError(
                 "Could not determine CTF platform URL from workspace.")
@@ -65,7 +68,13 @@ class PlatformResolver:
         )
         PlatformSchemaStore.sync_to_registry(workspace_path=ws_path)
 
-        declared = str(ctf_info.get("platform", "") or "").strip().lower()
+        declared = str(
+            ctf_info.get("platform")
+            or ctf_info.get("platform_type")
+            or (data or {}).get("platform_type")
+            or (data or {}).get("platform")
+            or ""
+        ).strip().lower()
         spec = None
         if declared and declared not in _UNDECLARED:
             try:
@@ -93,6 +102,13 @@ class PlatformResolver:
                     pass
             return session, platform, info
 
-        # Không khai báo (hoặc khai báo lạ) -> pipeline recon 4 tầng
-        platform, info = detect_platform_info(url, session, cookie_hint=cookie, workspace_path=ws_path)
+        # Không khai báo (hoặc khai báo lạ) -> dùng PlatformDetector facade (tôn trọng mock trong tests)
+        from ..platforms.detector import PlatformDetector
+        platform = PlatformDetector.detect_platform(url, session)
+        info = getattr(platform, "info", None) or PlatformInfo(
+            platform_type=getattr(platform, "platform_type", "unknown"),
+            base_url=url,
+            confidence="low",
+            signals=["Fallback qua PlatformDetector"],
+        )
         return session, platform, info

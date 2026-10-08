@@ -17,14 +17,12 @@ import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional
 
 try:
     import lzma
 except ImportError:
     lzma = None  # type: ignore
-
-from ..utils.logger import Logger
 
 # Default threshold for Git / GitHub (GitHub warns at 50MB, rejects at 100MB)
 DEFAULT_THRESHOLD_MB = 50

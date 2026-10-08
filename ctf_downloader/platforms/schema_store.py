@@ -13,7 +13,7 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Type
+from typing import Dict, Optional, Type
 
 from .schema import PlatformSchema, validate_platform_key
 from ..utils.logger import Logger

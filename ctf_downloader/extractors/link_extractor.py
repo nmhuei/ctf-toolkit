@@ -2,7 +2,7 @@ import re
 import shutil
 import urllib.parse
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import List, Optional
 from bs4 import BeautifulSoup
 
 # Hằng dữ liệu dùng chung với tầng downloaders qua utils.mega_tools (tầng

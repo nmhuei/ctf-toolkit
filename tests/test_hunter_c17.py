@@ -240,10 +240,10 @@ class TestC17LockInodeWindow(_TempWsCase):
             f.write(str(os.getpid()))
         self.assertFalse(store._lock_still_records(self.STALE_PID))
 
-    def test_replace_between_snapshot_and_recheck_bails_out(self):
-        """Replace inode GIỮA hai phép stat của verifier (seam mock):
+    def test_replace_before_path_recheck_bails_out(self):
+        """Replace lock while the verifier holds the original inode open:
         file bị xoá/tạo lại Y HỆT nội dung cũ (chỉ khác inode) giữa lúc
-        chụp inode trước và đối chiếu sau → acquire phải bỏ lượt, không
+        đọc descriptor gốc và re-stat path → acquire phải bỏ lượt, không
         xoá nhầm file vừa được tạo lại."""
         store = WatchStateStore(str(self.ws))
         self._seed_stale_lock(store)
@@ -251,11 +251,11 @@ class TestC17LockInodeWindow(_TempWsCase):
         orig_stat_ino = WatchStateStore._stat_ino
         calls = {"n": 0}
 
-        def replace_same_content_on_second_call(path):
+        def replace_same_content_during_path_recheck(path):
             calls["n"] += 1
-            if calls["n"] == 2:
+            if calls["n"] == 1:
                 # "process B": xoá stale-lock và tạo lại giống hệt nội dung
-                # cũ — chỉ so NỘI DUNG thì không phát hiện được, chỉ inode.
+                # cũ. Descriptor verifier đang mở giữ inode cũ được cấp phát.
                 os.unlink(path)
                 with open(path, "w") as f:
                     f.write(str(self.STALE_PID))
@@ -264,11 +264,11 @@ class TestC17LockInodeWindow(_TempWsCase):
         with patch.object(WatchStateStore, "_pid_alive",
                           return_value=False), \
                 patch.object(WatchStateStore, "_stat_ino",
-                             staticmethod(replace_same_content_on_second_call)):
+                             staticmethod(replace_same_content_during_path_recheck)):
             ok = store.acquire_lock()
         self.assertFalse(ok, "inode đã đổi tay giữa chừng mà vẫn unlink")
-        self.assertGreaterEqual(calls["n"], 2,
-                                "verifier phải stat cả TRƯỚC và SAU khi đọc")
+        self.assertEqual(calls["n"], 1,
+                         "verifier phải re-stat path sau khi đọc descriptor")
         with open(store.lock_path) as f:
             self.assertEqual(
                 int(f.read()), self.STALE_PID,

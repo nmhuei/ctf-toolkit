@@ -1,4 +1,3 @@
-from typing import Any, Dict
 
 from .config import DownloaderConfig
 from .services.pull_service import PullService

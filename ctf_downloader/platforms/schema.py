@@ -11,7 +11,7 @@ import json
 import math
 import re
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 
 def validate_platform_key(key: str) -> str:

@@ -4,7 +4,7 @@ from bs4 import BeautifulSoup
 from typing import Tuple, Optional
 from ..services.session_factory import create_session
 from ..utils.logger import Logger
-from ..utils.sanitize import extract_filename_from_headers, extract_filename_from_url
+from ..utils.sanitize import extract_filename_from_headers
 from .registry import register_downloader
 
 MEDIAFIRE_API_INFO_URL = "https://www.mediafire.com/api/1.4/file/get_info.php"

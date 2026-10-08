@@ -9,8 +9,14 @@ registry là nguồn dữ liệu duy nhất cho:
   - dựng platform instance theo tên (`get_spec(key).cls`).
 """
 
+import importlib
+import pkgutil
+
 from dataclasses import dataclass
 from typing import Callable, Dict, Tuple, Type
+
+import ctf_downloader.platforms as platforms_pkg
+
 
 
 class UnknownPlatformError(ValueError):
@@ -36,6 +42,27 @@ class PlatformSpec:
 
 # Registry toàn cục: key -> PlatformSpec
 PLATFORMS: Dict[str, PlatformSpec] = {}
+_DISCOVERED: bool = False
+
+
+def _auto_discover_platforms() -> None:
+    """Dynamically import all platform adapter modules in this package.
+
+    Adapters self-register through @register(), so discovery only needs to
+    import modules. Existing explicit imports below remain as a compatibility
+    fallback for legacy symbol access and import ordering.
+    """
+    global _DISCOVERED
+    if _DISCOVERED:
+        return
+    for _, name, ispkg in pkgutil.iter_modules(platforms_pkg.__path__):
+        if ispkg or name in {"registry", "templates"}:
+            continue
+        try:
+            importlib.import_module(f"ctf_downloader.platforms.{name}")
+        except Exception:
+            pass
+    _DISCOVERED = True
 
 
 def register(key=None, *, label=None, **kw) -> Callable[[Type], Type]:
@@ -63,12 +90,21 @@ def register(key=None, *, label=None, **kw) -> Callable[[Type], Type]:
 
 def get_spec(key: str) -> PlatformSpec:
     """Tra PlatformSpec theo key. KeyError được chuyển thành UnknownPlatformError."""
+    _auto_discover_platforms()
     try:
         return PLATFORMS[key]
     except KeyError:
         raise UnknownPlatformError(
             f"Unknown platform type: {key!r}. Known platforms: {sorted(PLATFORMS)}"
         ) from None
+
+
+def get_platform(key: str) -> Optional[Type]:
+    """Tra cứu platform class theo key. Trả None nếu không tìm thấy."""
+    try:
+        return get_spec(key).cls
+    except (UnknownPlatformError, KeyError):
+        return None
 
 
 def display_label(key: str, max_len: int = 10) -> str:
@@ -102,3 +138,5 @@ try:
     PlatformSchemaStore.sync_to_registry()
 except Exception:
     pass
+
+_auto_discover_platforms()

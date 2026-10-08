@@ -1,5 +1,6 @@
 import re
 import urllib.parse
+from typing import Optional
 
 import unicodedata
 

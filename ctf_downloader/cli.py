@@ -749,6 +749,9 @@ def _bqa_boundary(dispatch):
 
 @_bqa_boundary
 def main():
+    from .utils.env_loader import load_dotenv
+    load_dotenv()
+
     from .ui.theme import init_theme
     init_theme()
 

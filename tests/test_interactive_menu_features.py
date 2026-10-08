@@ -77,7 +77,7 @@ def test_main_menu_enter_selects_last_action(monkeypatch):
         app.workspace_path = str(ws)
         app.cookie = app.token = None
         app.config = {}
-        app._last_action = "S"
+        app._last_action = "2"
 
         called = []
         monkeypatch.setattr(app, "_menu_solver", lambda: called.append("solver"))
@@ -87,7 +87,7 @@ def test_main_menu_enter_selects_last_action(monkeypatch):
         full_output = "\n".join(con.printed)
         assert "● active" not in full_output
         assert "[default" not in full_output
-        assert "Select action (1-5, S=Solver, 0=Exit [T=Theme]):" in full_output
+        assert "Select action (1-4, 0=Exit):" in full_output
 
 
 def test_main_menu_aliases_and_cleaning(monkeypatch):
@@ -107,7 +107,7 @@ def test_main_menu_aliases_and_cleaning(monkeypatch):
         app.run()
 
         assert "solver" in called
-        assert app._last_action == "S"
+        assert app._last_action == "2"
 
 
 def test_menu_view_challenge_detail_lists_and_selects_by_index(monkeypatch):
@@ -253,7 +253,7 @@ def test_resolve_challenge_selection_name_matching():
 
 
 def test_menu_view_challenge_detail_survives_missing_and_corrupt_files(monkeypatch):
-    con = FakeMenuConsole(inputs=["1", "0"])
+    con = FakeMenuConsole(inputs=["3", "0"])
     monkeypatch.setattr(im, "_menu_console", lambda: con)
     monkeypatch.setattr(im, "_pause", lambda: None)
 
@@ -615,9 +615,9 @@ def test_menu_solver_empty_workspace_guidance(monkeypatch):
         assert "Hub [1]" in output
 
 
-def test_main_menu_action_4_invokes_ranking(monkeypatch):
-    """Option 4 in main menu invokes _menu_ranking."""
-    con = FakeMenuConsole(inputs=["4", "0"])
+def test_main_menu_action_3_invokes_workspace(monkeypatch):
+    """Option 4 in main menu invokes workspace selection."""
+    con = FakeMenuConsole(inputs=["3", "0"])
     monkeypatch.setattr(im, "_menu_console", lambda: con)
 
     with tempfile.TemporaryDirectory() as temp:
@@ -629,16 +629,16 @@ def test_main_menu_action_4_invokes_ranking(monkeypatch):
         app._last_action = None
 
         ranking_called = []
-        monkeypatch.setattr(app, "_menu_ranking", lambda: ranking_called.append(True))
+        monkeypatch.setattr(app, "_menu_switch_workspace", lambda: ranking_called.append(True))
         app.run()
 
         assert len(ranking_called) == 1
-        assert app._last_action == "4"
+        assert app._last_action == "3"
 
 
-def test_main_menu_action_5_invokes_container_manager(monkeypatch):
-    """Option 5 in main menu invokes _menu_container_manager."""
-    con = FakeMenuConsole(inputs=["5", "0"])
+def test_main_menu_action_1_invokes_challenges(monkeypatch):
+    """Option 1 in main menu invokes challenge selection."""
+    con = FakeMenuConsole(inputs=["1", "0"])
     monkeypatch.setattr(im, "_menu_console", lambda: con)
 
     with tempfile.TemporaryDirectory() as temp:
@@ -649,12 +649,12 @@ def test_main_menu_action_5_invokes_container_manager(monkeypatch):
         app.config = {}
         app._last_action = None
 
-        container_called = []
-        monkeypatch.setattr(app, "_menu_container_manager", lambda: container_called.append(True))
+        settings_called = []
+        monkeypatch.setattr(app, "_menu_challenges", lambda: settings_called.append(True))
         app.run()
 
-        assert len(container_called) == 1
-        assert app._last_action == "5"
+        assert len(settings_called) == 1
+        assert app._last_action == "1"
 
 
 def test_menu_ranking_displays_and_exits(monkeypatch):
@@ -713,6 +713,8 @@ def test_main_menu_action_g_shows_cli_guidance(monkeypatch):
         app.run()
 
         output = "\n".join(con.printed)
+        assert "Git workflow" in output
+        assert "Git workflow" in output
         assert "ctf git push" in output
         assert "ctf git sync" in output
 
@@ -780,9 +782,9 @@ def test_hub_workspace_cancel_stays_in_hub(monkeypatch):
     assert len(prompt_inputs) == 0
 
 
-def test_main_menu_action_1_directly_invokes_switch_workspace(monkeypatch):
-    """Option 1 in main menu directly opens workspace selector without intermediate hub."""
-    con = FakeMenuConsole(inputs=["1", "0"])
+def test_main_menu_action_3_directly_invokes_switch_workspace(monkeypatch):
+    """Option 4 in main menu opens workspace selector."""
+    con = FakeMenuConsole(inputs=["3", "0"])
     monkeypatch.setattr(im, "_menu_console", lambda: con)
 
     with tempfile.TemporaryDirectory() as temp:
@@ -798,12 +800,12 @@ def test_main_menu_action_1_directly_invokes_switch_workspace(monkeypatch):
         app.run()
 
         assert len(switch_called) == 1
-        assert app._last_action == "1"
+        assert app._last_action == "3"
 
 
-def test_main_menu_action_2_invokes_flag_format(monkeypatch):
-    """Option 2 in main menu invokes _menu_flag_format."""
-    con = FakeMenuConsole(inputs=["2", "0"])
+def test_main_menu_challenge_aliases_remain_clean(monkeypatch):
+    """Unsupported legacy settings key is no longer a home action."""
+    con = FakeMenuConsole(inputs=["0"])
     monkeypatch.setattr(im, "_menu_console", lambda: con)
 
     with tempfile.TemporaryDirectory() as temp:
@@ -814,16 +816,13 @@ def test_main_menu_action_2_invokes_flag_format(monkeypatch):
         app.config = {}
         app._last_action = None
 
-        called = []
-        monkeypatch.setattr(app, "_menu_flag_format", lambda: called.append(True))
         app.run()
 
-        assert len(called) == 1
-        assert app._last_action == "2"
+        assert "Goodbye" in "\n".join(con.printed)
 
 
-def test_main_menu_action_3_invokes_submit_flag(monkeypatch):
-    """Option 3 in main menu invokes _menu_submit_flag."""
+def test_submit_flag_is_not_a_home_menu_action(monkeypatch):
+    """Submit Flag remains available through the challenge flow, not home."""
     con = FakeMenuConsole(inputs=["3", "0"])
     monkeypatch.setattr(im, "_menu_console", lambda: con)
 
@@ -839,7 +838,7 @@ def test_main_menu_action_3_invokes_submit_flag(monkeypatch):
         monkeypatch.setattr(app, "_menu_submit_flag", lambda: called.append(True))
         app.run()
 
-        assert len(called) == 1
+        assert len(called) == 0
         assert app._last_action == "3"
 
 
@@ -861,11 +860,13 @@ def test_main_menu_action_s_invokes_solver(monkeypatch):
         app.run()
 
         assert len(called) == 1
-        assert app._last_action == "S"
+        assert app._last_action == "2"
 
 
 def test_menu_flag_format_set_and_clear(monkeypatch):
     monkeypatch.setattr(im, "_pause", lambda: None)
+    from ctf_downloader.storage import global_config
+    monkeypatch.setattr(global_config, "update_global_config", lambda _mutator: None)
 
     with tempfile.TemporaryDirectory() as temp:
         ws = create_dummy_workspace(temp)
@@ -883,6 +884,13 @@ def test_menu_flag_format_set_and_clear(monkeypatch):
 
         fmt = app._get_flag_format()
         assert fmt == r"^CSSCTF\{.+\}$"
+
+        monkeypatch.setattr(im, "_prompt", lambda p: "0")
+        con_cancel = FakeMenuConsole(inputs=["0"])
+        monkeypatch.setattr(im, "_menu_console", lambda: con_cancel)
+        app._menu_flag_format()
+        assert app._get_flag_format() == fmt
+        assert any("'0' to cancel" in item for item in con_cancel.printed)
 
         monkeypatch.setattr(im, "_prompt", lambda p: "clear")
         con2 = FakeMenuConsole(inputs=["clear"])
@@ -1019,7 +1027,7 @@ def test_safe_run_action_catches_exceptions_without_crashing(monkeypatch):
 
 def test_menu_run_loop_catches_unhandled_action_exception(monkeypatch):
     """Menu run() catches unhandled action exceptions and continues cleanly to exit."""
-    con = FakeMenuConsole(inputs=["1", "0"])
+    con = FakeMenuConsole(inputs=["3", "0"])
     monkeypatch.setattr(im, "_menu_console", lambda: con)
     monkeypatch.setattr(im, "_pause", lambda: None)
 
@@ -1052,3 +1060,31 @@ def test_launch_interactive_menu_catches_fatal_initialization_error(monkeypatch)
         im.launch_interactive_menu()
 
 
+def test_home_menu_actions_are_task_oriented():
+    keys = [item[0] for item in im._MAIN_ACTIONS_RAW]
+    labels = [item[2] for item in im._MAIN_ACTIONS_RAW]
+    assert keys == ["1", "2", "3", "4", "0"]
+    assert labels[:4] == ["Challenges", "AI Solver", "Workspace", "Settings"]
+    assert "Workspace" in labels
+
+
+def test_challenge_first_hub_preserves_existing_actions(monkeypatch):
+    app = im.CTFInteractiveConsole.__new__(im.CTFInteractiveConsole)
+    calls = []
+    monkeypatch.setattr(im, "render_hub_menu", lambda **kwargs: "1")
+    monkeypatch.setattr(app, "_menu_view_challenge_detail", lambda: calls.append("detail"))
+
+    app._menu_challenges()
+
+    assert calls == ["detail"]
+
+
+def test_settings_hub_routes_advanced_actions(monkeypatch):
+    app = im.CTFInteractiveConsole.__new__(im.CTFInteractiveConsole)
+    calls = []
+    monkeypatch.setattr(im, "render_hub_menu", lambda **kwargs: "1")
+    monkeypatch.setattr(app, "_menu_flag_format", lambda: calls.append("flag-format"))
+
+    app._menu_settings()
+
+    assert calls == ["flag-format"]

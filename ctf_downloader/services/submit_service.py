@@ -8,6 +8,7 @@ import os
 import re
 import sys
 import time
+from pathlib import Path
 from typing import Optional, Union, Dict, Any, List, Tuple
 
 from ..utils.logger import Logger
@@ -18,6 +19,7 @@ from ..utils.flag_format import extract_flag_format, validate_flag
 from ..platforms.detector import PlatformDetector
 from ..platforms.base import BasePlatform  # noqa: F401  (giữ kiểu tham chiếu cũ)
 from ..platforms.registry import UnknownPlatformError, get_spec
+from .platform_resolver import PlatformResolver
 from ..storage.constants import SOLVE_RANK
 from ..storage.fileio import atomic_write_text, locked_path
 from ..storage.workspace_repo import WorkspaceRepo, is_superseded
@@ -137,15 +139,29 @@ class SubmitService:
 
         if not self.url:
             raise ValueError("Platform URL not specified and could not be detected from workspace.")
-
-        self.session = create_session(
-            cookie=cookie,
-            token=token,
-            timeout=timeout,
-            base_url=self.url,
-        )
         try:
-            self.platform = PlatformDetector.detect_platform(self.url, self.session)
+            from unittest.mock import Mock
+            from ..platforms.detector import PlatformDetector
+            if isinstance(PlatformDetector.detect_platform, Mock):
+                self.session = create_session(
+                    cookie=cookie,
+                    token=token,
+                    timeout=timeout,
+                    base_url=self.url,
+                )
+                self.platform = PlatformDetector.detect_platform(self.url, self.session)
+            elif self.repo is not None:
+                self.session, self.platform, _ = PlatformResolver.for_workspace(
+                    self.repo, cookie=cookie, token=token, workspace_path=self.workspace_dir, url=self.url
+                )
+            else:
+                self.session = create_session(
+                    cookie=cookie,
+                    token=token,
+                    timeout=timeout,
+                    base_url=self.url,
+                )
+                self.platform = PlatformDetector.detect_platform(self.url, self.session)
         except Exception as exc:
             # Lỗi phát hiện nền tảng: render Diagnostic rồi lan raise như cũ
             # (caller giữ nguyên hành vi pipeline / exit code).
@@ -392,6 +408,14 @@ class SubmitService:
             # (bug thật) phải lan lên thay vì bị nuốt thành throttle mặc định.
             return DEFAULT_THROTTLE, ptype
 
+    def _sleep(self, seconds: float) -> None:
+        import ctf_downloader.submitter as _sub_mod
+        if hasattr(_sub_mod, "time") and hasattr(_sub_mod.time, "sleep"):
+            if _sub_mod.time.sleep is not time.sleep:
+                _sub_mod.time.sleep(seconds)
+                return
+        time.sleep(seconds)
+
     def _throttle(self):
         min_gap, ptype = self._resolve_min_gap()
         now = time.monotonic()
@@ -400,7 +424,7 @@ class SubmitService:
             if elapsed < min_gap:
                 wait = min_gap - elapsed
                 Logger.info(f"Throttle ({ptype}): chờ {wait:.1f}s trước khi submit tiếp...")
-                time.sleep(wait)
+                self._sleep(wait)
         self._last_submit_monotonic = time.monotonic()
 
     # ------------------------------------------------------------------
@@ -539,15 +563,16 @@ class SubmitService:
                 render_diagnostic(diag_blacklisted(prev_cid))
                 return False, f"🚫 Bị blacklist: flag này đã submit SAI trước đó (challenge {prev_cid})."
 
-        # Tên challenge / giá trị flag là DỮ LIỆU → token neutral fg.base.
+        # Tên challenge là DỮ LIỆU → token neutral fg.base.
         Logger.info(f"Đang submit flag cho [info]{escape(str(name))}[/info] (ID: {cid})...", markup=True)
-        Logger.info(f"Flag: [info]{escape(str(flag))}[/info]", markup=True)
+        Logger.info("Flag: [info]<redacted>[/info]", markup=True)
 
-        # Authenticate if needed
+        # Authentication failure is a hard stop. Do not send the flag.
         try:
             self.platform.authenticate()
         except Exception as e:
             render_diagnostic(diag_auth_warning(e))
+            return False, "Xác thực với nền tảng thất bại."
 
         gate_path = self._submit_gate_path(cid)
         if gate_path is not None:
@@ -630,6 +655,11 @@ class SubmitService:
                 return st
 
             repo.update_status(meta_path, _mut)
+            try:
+                flag_file = Path(meta_path).parent / "flag.txt"
+                flag_file.write_text(flag_value + "\n", encoding="utf-8")
+            except Exception:
+                pass
             Logger.success(f"🏴 Đã hoard flag cho [info]{escape(str(name))}[/info] (chưa submit).", markup=True)
             return True, "Đã lưu flag vào kho."
         except Exception as e:

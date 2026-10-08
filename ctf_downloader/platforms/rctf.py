@@ -5,7 +5,7 @@ import requests
 from typing import List, Dict, Any, Optional, Tuple
 from bs4 import BeautifulSoup
 from rich.markup import escape
-from .base import (BasePlatform, Challenge, CTFInfo, EventTimes, Verdict,
+from .base import (BasePlatform, Challenge, EventTimes, Verdict,
                    PlatformRegisterUnsupported, SolveAttribution, epoch_ms,
                    normalize_epoch_to_utc, safe_get_json)
 from ..utils.logger import Logger
@@ -225,6 +225,46 @@ class RCTFPlatform(BasePlatform):
 
         Logger.error("Xác thực thất bại trên nền tảng rCTF.")
         return False
+
+    supports_notices: bool = False
+    notices_endpoint: Optional[str] = None
+    min_instance_op_gap_seconds: float = 0.0
+    max_instance_renews: Optional[int] = None
+    restart_rotates_flag: bool = True
+    return_bool_verify: bool = False
+
+    def extract_verify_payload(self, url: str) -> Optional[Dict[str, Any]]:
+        """Extract verification token from rCTF confirmation link."""
+        parsed = urllib.parse.urlparse(url)
+        path = parsed.path.rstrip("/").lower()
+        if path.endswith("/verify"):
+            query = urllib.parse.parse_qs(parsed.query)
+            token = (query.get("token") or [""])[0]
+            if token:
+                return {"url": url, "token": token}
+        return None
+
+    def verify_email(self, session: Any, payload: Any,
+                     base_url: Optional[str] = None) -> Tuple[bool, Dict[str, Any]]:
+        """Verify rCTF email via POST to /api/v2/auth/verify."""
+        verify_base = (base_url or self.base_url or "").rstrip("/")
+        token = payload.get("token") if isinstance(payload, dict) else ""
+        resp = session.post(
+            f"{verify_base}/api/v2/auth/verify",
+            json={"verifyToken": token},
+            timeout=20,
+        )
+        rctf_data: Dict[str, Any] = {}
+        try:
+            parsed = resp.json() or {}
+            if isinstance(parsed, dict):
+                rctf_data = parsed
+        except Exception:
+            pass
+        ok = getattr(resp, "status_code", 0) == 200 and str(
+            rctf_data.get("kind") or ""
+        ).startswith("good")
+        return ok, rctf_data
 
     def register(self, *, username: str, email: str, password: str,
                  verify_email_hook=None) -> Dict[str, Any]:

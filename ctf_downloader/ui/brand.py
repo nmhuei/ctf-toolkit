@@ -8,6 +8,7 @@ stripped automatically.
 from __future__ import annotations
 
 import shutil
+from typing import Any
 
 from rich.cells import cell_len
 from rich.text import Text

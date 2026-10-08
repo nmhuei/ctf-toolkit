@@ -31,7 +31,6 @@ from typing import Any, Dict, List, Optional, Tuple
 from .instance_service import parse_host_port
 from ..storage.workspace_repo import WorkspaceRepo
 from ..utils.http_client import parse_retry_after_seconds
-from ..utils.logger import Logger
 
 # ---------------------------------------------------------------------- #
 # Tham số state machine
@@ -93,11 +92,29 @@ class InstanceTracker:
 
     def __init__(self, challenge_id: Any, name: str,
                  meta_path: Optional[Any] = None,
-                 platform_kind: str = "unknown"):
+                 platform_kind: str = "unknown",
+                 min_op_gap: Optional[float] = None,
+                 max_renews: Optional[int] = None,
+                 rotates_flag: Optional[bool] = None):
         self.challenge_id = challenge_id
         self.name = name
         self.meta_path = meta_path
         self.platform_kind = platform_kind   # gzctf | whale | unknown
+        if min_op_gap is not None:
+            self.min_op_gap = float(min_op_gap)
+        else:
+            self.min_op_gap = 0.0 if platform_kind == "gzctf" else (WHALE_OP_GAP if platform_kind == "whale" else 0.0)
+
+        if max_renews is not None:
+            self.max_renews: Optional[int] = int(max_renews)
+        else:
+            self.max_renews = None if platform_kind == "gzctf" else (WHALE_MAX_RENEWS if platform_kind == "whale" else None)
+
+        if rotates_flag is not None:
+            self.rotates_flag = bool(rotates_flag)
+        else:
+            self.rotates_flag = False if platform_kind == "gzctf" else True
+
         self.state = ALIVE
         self.remaining: Optional[float] = None
         self.entry: Optional[str] = None
@@ -175,12 +192,17 @@ class InstanceKeepAlive:
             cid = meta.get("id")
             if cid is None or cid in self.trackers:
                 continue
-            pname = type(self.svc.platform).__name__.lower()
+            plat = getattr(self.svc, "platform", None)
+            min_gap = getattr(plat, "min_instance_op_gap_seconds", None)
+            max_r = getattr(plat, "max_instance_renews", None)
+            rot_flag = getattr(plat, "restart_rotates_flag", None)
+            pname = type(plat).__name__.lower() if plat else ""
             kind = ("gzctf" if "gzctf" in pname
                     else "whale" if "ctfd" in pname else "unknown")
             self.trackers[cid] = InstanceTracker(
                 challenge_id=cid, name=str(meta.get("name", f"ID {cid}")),
-                meta_path=meta.get("_local_path"), platform_kind=kind)
+                meta_path=meta.get("_local_path"), platform_kind=kind,
+                min_op_gap=min_gap, max_renews=max_r, rotates_flag=rot_flag)
         return list(self.trackers.values())
 
     # ------------------------------------------------------------------ #
@@ -231,26 +253,25 @@ class InstanceKeepAlive:
         return lead
 
     def _whale_gap_ok(self, tracker: InstanceTracker) -> bool:
-        """Whale: mọi operation cách nhau ≥61s — request LỖI cũng reset đồng hồ
-        (last_op được cập nhật ở cả nhánh thành công lẫn thất bại)."""
-        if tracker.platform_kind == "gzctf":
+        """Operation spacing tối thiểu (min_op_gap). Request LỖI cũng reset đồng hồ."""
+        if tracker.min_op_gap <= 0:
             return True
         last = tracker.last_op_mono
-        if last is not None and (_now() - last) < WHALE_OP_GAP:
+        if last is not None and (_now() - last) < tracker.min_op_gap:
             return False
         if tracker.meta_path:
             op_file = Path(tracker.meta_path).parent / ".whale_last_op"
             if op_file.is_file():
                 try:
                     raw = op_file.read_text(encoding="utf-8").strip()
-                    if raw and (time.time() - float(raw)) < WHALE_OP_GAP:
+                    if raw and (time.time() - float(raw)) < tracker.min_op_gap:
                         return False
                 except (OSError, ValueError):
                     pass
         return True
 
     def _mark_whale_op(self, tracker: InstanceTracker) -> None:
-        if tracker.platform_kind != "gzctf":
+        if tracker.min_op_gap > 0:
             tracker.last_op_mono = _now()
             if tracker.meta_path:
                 op_file = Path(tracker.meta_path).parent / ".whale_last_op"
@@ -389,19 +410,19 @@ class InstanceKeepAlive:
                    events: List[Tuple[str, str]],
                    remaining: Optional[float],
                    was_renew_failed: bool = False) -> List[Tuple[str, str]]:
-        # Whale hết lượt renew → không gọi PATCH nữa (circuit breaker OPEN)
-        if tracker.platform_kind != "gzctf":
-            if tracker.renew_count >= WHALE_MAX_RENEWS:
+        # Hết lượt renew → không gọi PATCH nữa (circuit breaker OPEN)
+        if tracker.max_renews is not None:
+            if tracker.renew_count >= tracker.max_renews:
                 tracker.state = GIVE_UP
                 # M-1: message key CỐ ĐỊNH (không nhúng remaining) để
                 # escalation suppress chống spam mỗi tick
                 msg = (f"📢 {tracker.name}: container sắp chết — "
-                       f"không extend được nữa (hết {WHALE_MAX_RENEWS} lượt renew).")
+                       f"không extend được nữa (hết {tracker.max_renews} lượt renew).")
                 ev = tracker.escalate(CRITICAL, msg)
                 if ev:
                     events.append(ev)
                 return events
-            if tracker.renew_count == WHALE_MAX_RENEWS - 1:
+            if tracker.renew_count == tracker.max_renews - 1:
                 ev = tracker.escalate(WARNING, f"🔴 {tracker.name}: còn 1 lượt "
                                                f"renew duy nhất.")
                 if ev:
@@ -442,7 +463,7 @@ class InstanceKeepAlive:
             tracker.tcp_fail_count = 0
             tracker.state = ALIVE
             tracker.phase_deadline = None
-            if tracker.platform_kind != "gzctf":
+            if tracker.max_renews is not None:
                 tracker.renew_count += 1
             # Neo lại lifetime sau renew (remaining mới ≈ cửa sổ đầy đủ)
             fresh = self._get_status_safe(tracker)
@@ -457,8 +478,8 @@ class InstanceKeepAlive:
         self._mark_whale_op(tracker)   # request lỗi cũng reset đồng hồ whale
         fatal = self._is_fatal_renew_error(msg)
         if fatal:
-            if tracker.platform_kind != "gzctf":
-                tracker.renew_count = WHALE_MAX_RENEWS   # circuit breaker OPEN
+            if tracker.max_renews is not None:
+                tracker.renew_count = tracker.max_renews   # circuit breaker OPEN
             tracker.state = GIVE_UP
             tracker.phase_deadline = None
             ev = tracker.escalate(CRITICAL, f"📢 {tracker.name}: renew bị từ chối "
@@ -503,12 +524,8 @@ class InstanceKeepAlive:
     # Restart (phương sách cuối — phải qua R-A nếu đổi flag)
     # ------------------------------------------------------------------ #
     def restart_rotates_flag(self, tracker: InstanceTracker) -> bool:
-        """True nếu recreate container có thể ĐỔI FLAG (R-A).
-
-        - gzctf: FlagContext ghim trong DB → recreate GIỮ flag → False.
-        - whale/platform khác: POST tạo row mới → ĐỔI flag → True (an toàn).
-        """
-        return tracker.platform_kind != "gzctf"
+        """True nếu recreate container có thể ĐỔI FLAG (R-A)."""
+        return tracker.rotates_flag
 
     def _maybe_restart(self, tracker: InstanceTracker,
                        events: List[Tuple[str, str]]) -> List[Tuple[str, str]]:

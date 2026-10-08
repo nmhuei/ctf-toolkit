@@ -30,6 +30,12 @@ def _dotenv_value(workspace: Path, key: str) -> str | None:
 
 def solver_max_workers(workspace: str | Path | None = None) -> int:
     """Return the configured global solver limit, defaulting to three workers."""
+    try:
+        from ..utils.env_loader import load_dotenv
+        load_dotenv(workspace=workspace)
+    except Exception:
+        pass
+
     raw = os.environ.get(_ENV_WORKERS_KEY)
     if raw is None and workspace is not None:
         raw = _dotenv_value(Path(workspace).expanduser(), _ENV_WORKERS_KEY)
@@ -50,6 +56,12 @@ def solver_default_engine(workspace: str | Path | None = None) -> str:
     4. Global config: ~/.config/ctf_toolkit/config.json ['solver_engine'].
     5. Default fallback: 'agy'.
     """
+    try:
+        from ..utils.env_loader import load_dotenv
+        load_dotenv(workspace=workspace)
+    except Exception:
+        pass
+
     env_eng = os.environ.get(_ENV_ENGINE_KEY) or os.environ.get("CTF_ENGINE")
     if env_eng:
         return str(env_eng).strip().lower()

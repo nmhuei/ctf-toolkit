@@ -26,12 +26,14 @@ def _tmp_path(path: Path) -> Path:
     return path.with_name(path.name + ".tmp")
 
 
-def atomic_write_text(path: PathLike, text: str) -> None:
+def atomic_write_text(path: PathLike, text: str, mode: int | None = None) -> None:
     """Ghi text một cách nguyên tử: ghi `<name>.tmp` rồi os.replace.
 
     Nếu đích là symlink: ghi vào ĐÍCH THẬT (resolve) thay vì os.replace lên
     path symlink — nếu không, replace sẽ âm thầm thay symlink bằng file thường
     và target gốc không bao giờ được cập nhật.
+    Nếu `mode` được truyền (vd 0o600 cho secrets/tokens), chmod được áp dụng
+    trước khi os.replace.
     """
     p = Path(path)
     if p.is_symlink():
@@ -42,6 +44,8 @@ def atomic_write_text(path: PathLike, text: str) -> None:
             f.write(text)
             f.flush()
             os.fsync(f.fileno())
+        if mode is not None:
+            os.chmod(tmp, mode)
         os.replace(tmp, p)
     except BaseException:
         # Ghi/replace thất bại (vd ENOSPC): dọn tmp để không để lại rác
@@ -53,9 +57,9 @@ def atomic_write_text(path: PathLike, text: str) -> None:
         raise
 
 
-def atomic_write_json(path: PathLike, obj) -> None:
+def atomic_write_json(path: PathLike, obj, mode: int | None = None) -> None:
     """Ghi JSON một cách nguyên tử (indent=2, ensure_ascii=False)."""
-    atomic_write_text(path, json.dumps(obj, indent=2, ensure_ascii=False))
+    atomic_write_text(path, json.dumps(obj, indent=2, ensure_ascii=False), mode=mode)
 
 
 def locked_write_text(path: PathLike, text: str) -> bool:

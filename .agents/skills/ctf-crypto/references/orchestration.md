@@ -9,7 +9,7 @@
 5. Write the smallest script that tests that opening. Keep the script's inputs and output deterministic whenever possible.
 6. If the opening survives, derive the full equations and solve them. If it fails, record why and return to classification instead of escalating a guess.
 7. Verify candidates against every original sample. For a remote oracle, predict at least one unused observation when safe and permitted.
-8. Save `solve.py` or `solve.sage`, inputs, a command to reproduce, and a short `RESULT.md`. Do not submit a recovered flag automatically.
+8. Save `solve.py` or `solve.sage`, inputs, a command to reproduce, and a short `RESULT.md`. For this user's authorized CTF tasks, submit each flag candidate promptly and record the official result.
 
 ## Evidence that must survive each stage
 

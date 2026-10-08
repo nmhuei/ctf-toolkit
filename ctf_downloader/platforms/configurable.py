@@ -14,10 +14,9 @@ from typing import Any, Dict, List, Optional, Tuple
 from bs4 import BeautifulSoup
 from rich.markup import escape
 
-from .base import BasePlatform, Challenge, CTFInfo, safe_get, safe_get_json
+from .base import BasePlatform, Challenge, safe_get, safe_get_json
 from .schema import PlatformSchema
 from ..utils.logger import Logger
-from ..utils.sanitize import sanitize_filename
 
 
 def _resolve_json_path(data: Any, path: str) -> Any:

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import socket
 import threading
@@ -21,8 +22,19 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_BURP_MCP_PORT = 9876
-DEFAULT_BURP_PROXY_PORT = 8080
+
+def _env_port(name: str, default: int) -> int:
+    val = os.environ.get(name)
+    if val:
+        try:
+            return int(val.strip())
+        except ValueError:
+            pass
+    return default
+
+
+DEFAULT_BURP_MCP_PORT = _env_port("BURP_MCP_PORT", 9876)
+DEFAULT_BURP_PROXY_PORT = _env_port("BURP_PROXY_PORT", 8080)
 
 
 def _normalize_domain(domain_or_url: str) -> str:
@@ -38,10 +50,10 @@ def _normalize_domain(domain_or_url: str) -> str:
 class BurpService:
     """Client for Burp Suite Model Context Protocol (MCP) server & HTTP Proxy."""
 
-    def __init__(self, host: str = "127.0.0.1", mcp_port: int = DEFAULT_BURP_MCP_PORT, proxy_port: int = DEFAULT_BURP_PROXY_PORT):
+    def __init__(self, host: str = "127.0.0.1", mcp_port: Optional[int] = None, proxy_port: Optional[int] = None):
         self.host = host
-        self.mcp_port = mcp_port
-        self.proxy_port = proxy_port
+        self.mcp_port = mcp_port if mcp_port is not None else _env_port("BURP_MCP_PORT", DEFAULT_BURP_MCP_PORT)
+        self.proxy_port = proxy_port if proxy_port is not None else _env_port("BURP_PROXY_PORT", DEFAULT_BURP_PROXY_PORT)
 
     def is_mcp_available(self, timeout: float = 0.6) -> bool:
         """Check if Burp Suite MCP SSE server is listening."""

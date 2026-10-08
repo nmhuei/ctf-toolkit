@@ -13,11 +13,10 @@
 """
 from __future__ import annotations
 
-import datetime as _dt
 import re
 import time
 from difflib import SequenceMatcher
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import requests

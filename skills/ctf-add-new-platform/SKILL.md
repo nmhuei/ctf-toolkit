@@ -1,116 +1,73 @@
 ---
 name: ctf-add-new-platform
-description: Use when adding, scaffolding, implementing, or testing support for a new or unknown CTF platform in the CTF Toolkit, or when resolving CTF-PULL-D02 errors.
+description: Use when you add or test support for a CTF platform that the toolkit does not support.
 ---
 
-# CTF Platform Authoring & Scaffold Skill (`ctf-add-new-platform`)
+# Add CTF Platform Support
 
-Use this skill when adding support for a new CTF competition platform, updating an existing platform adapter, or diagnosing `CTF-PULL-D02` (unknown platform) incidents.
+Use this skill when ctf pull cannot identify or use an authorized platform.
 
----
+Read the current platform schemas and adapter code before you change them. Do not assume that every platform uses one API format.
 
-## ⚡ The Zero-Blind-Exploration Rule
+## Probe the Platform
 
-**DO NOT read or explore the entire codebase blindly.** Adding a new CTF platform requires zero guesswork. Follow the prescriptive 2-Path Blueprint below.
+The probe command takes the URL as a positional argument. It has no -u or -c option.
 
-```mermaid
-flowchart TD
-    A[New Platform or CTF-PULL-D02 Error] --> B[Phase 1: Automated Recon Probe]
-    B --> C{Does it return standard REST JSON?}
-    C -- Yes (90% of cases) --> D[Path A: Declarative JSON Schema]
-    C -- No (Custom auth, GraphQL, crypto signing) --> E[Path B: Python Adapter Class]
-    D --> F[Run Deterministic Mock Test]
-    E --> F
-    F --> G[Verify ctf pull succeeds]
-```
+~~~bash
+ctf platform probe <URL>
+~~~
 
----
+To save a JSON schema in one workspace, use:
 
-## Phase 1: Automated Recon Probe
+~~~bash
+ctf platform probe <URL> --save --scope workspace -w <WORKSPACE>
+~~~
 
-Before writing any configuration or code, run the built-in probe against the platform URL:
+Do not put cookies or tokens in the command. Configure auth with ctf auth or the supported local credential store.
 
-```bash
-# 1. Run live automated reconnaissance
-ctf platform probe -u <TARGET_URL> -c "<COOKIE>"
+Treat probe output as a candidate. Check each endpoint, response field, and attachment rule against the authorized platform.
 
-# Or save directly into workspace schema:
-ctf platform probe -u <TARGET_URL> -c "<COOKIE>" --save --scope workspace
-```
+## Choose an Adapter
 
-Note the output findings:
-- **Title / Meta generator**: Will become `html_markers`.
-- **Session cookie name**: Will become `cookie_hints`.
-- **Challenge endpoint**: E.g. `/api/v1/challenges` or `/api/challenges`.
-- **Array root**: E.g. `data.challenges` or `data` or `items`.
-- **Field names**: Keys for `id`, `name`, `category`, `points`, `files`.
+Use a JSON definition when the platform maps cleanly to the existing schema.
 
----
+~~~bash
+python3 scripts/scaffold_platform.py -k <KEY> -l "<LABEL>" -t json -s workspace -w <WORKSPACE>
+~~~
 
-## Phase 2: Instant Scaffolding
+The script creates a JSON definition and a test file. Check both paths before you edit. The default scope is builtin. Use workspace or global only when the user requests that scope.
 
-Use the built-in scaffolding utility to generate the complete boilerplate and test file in 1 second:
+Use a Python adapter when the platform needs custom response parsing or request behavior.
 
-### 🌟 Path A: Declarative JSON Schema (Recommended - 90% of cases)
-*Zero Python code. Automatically loaded by `PlatformSchemaStore` and handled by `ConfigurablePlatform`.*
+~~~bash
+python3 scripts/scaffold_platform.py -k <KEY> -l "<LABEL>" -t python
+~~~
 
-Run scaffold:
-```bash
-python3 scripts/scaffold_platform.py -k <key> -l "<Display Label>" -t json
-```
-This generates:
-1. `ctf_downloader/platforms/definitions/<key>.json` (configured from template).
-2. `tests/test_platform_<key>.py` (schema validation test).
+The script creates an adapter, adds its import to the registry, and creates a test file. It changes toolkit source files. Make this change only when the user asked you to add platform support.
 
-**Step to finish Path A:**
-Edit `ctf_downloader/platforms/definitions/<key>.json` to adjust endpoints and field mappings to match the recon findings.
+The adapter implements these required methods from BasePlatform:
 
----
+- authenticate
+- fetch_challenges
+- get_full_file_url
+- submit_flag
 
-### 🛠️ Path B: Dedicated Python Adapter (10% of cases)
-*Use only when custom request signing, GraphQL, or special WebSocket challenge delivery is required.*
+Follow the template. Use solved_by_me and self.base_url where they match the model and base class.
 
-Run scaffold:
-```bash
-python3 scripts/scaffold_platform.py -k <key> -l "<Display Label>" -t python
-```
-This automatically:
-1. Creates `ctf_downloader/platforms/<key>.py` with the standard `BasePlatform` boilerplate.
-2. Registers `<key>` into `ctf_downloader/platforms/registry.py`.
-3. Creates `tests/test_platform_<key>.py` with full `unittest.mock` lifecycle test.
+## Test and Verify
 
-**Steps to finish Path B:**
-Implement the 4 mandatory methods in `ctf_downloader/platforms/<key>.py`:
-1. `authenticate(self) -> bool`: Validate session via a lightweight GET.
-2. `fetch_challenges(self) -> List[Challenge]`: Parse JSON into `Challenge` objects.
-   - **Crucial**: Use `solved_by_me=...` (NOT `solved=...`).
-   - **Crucial**: Use `self.base_url` (NOT `self.clean_base_url`).
-3. `get_full_file_url(self, file_path: str) -> str`: Return absolute download URL.
-4. `submit_flag(self, challenge_id, flag: str) -> Tuple[bool, str]`: POST flag to platform.
+Run the generated test:
 
----
+~~~bash
+pytest tests/test_platform_<KEY>.py
+~~~
 
-## Phase 3: Deterministic Unit Testing
+Read the diff. Keep tests local and mock HTTP requests. Do not submit a test flag to a live platform.
 
-Always run the generated unit test before retrying `ctf pull`:
+Run ctf pull against a live platform only when the user authorizes the request. Report the exact workspace, result, and any missing schema fields.
 
-```bash
-pytest tests/test_platform_<key>.py
-```
+## Keep Facts Accurate
 
-### Mocking Standard:
-- **Use standard library**: `from unittest.mock import MagicMock`.
-- **Do NOT import**: `requests_mock` (not installed in this environment).
+Do not claim that probe output proves full platform support. Do not claim that one adapter path fits a fixed percentage of platforms.
 
----
-
-## Phase 4: Common Pitfalls & Rules
-
-| ❌ Anti-Pattern (Will Fail) | ✔️ Correct Standard |
-|---|---|
-| Reading dozens of files in `ctf_downloader/` to understand architecture | Run `python3 scripts/scaffold_platform.py` |
-| Writing a 500-line Python adapter for a standard JSON API | Use Path A Declarative JSON schema |
-| Using `self.clean_base_url` in adapter | Use `self.base_url` |
-| Passing `solved=True` to `Challenge(...)` | Pass `solved_by_me=True` |
-| Importing `requests_mock` in unit test | Import `from unittest.mock import MagicMock` |
-| Hardcoding external URLs in test cases | Mock `session.get` and `session.post` locally |
+Read references/platform_authoring.md for the JSON schema and adapter details.

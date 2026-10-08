@@ -248,3 +248,225 @@ class TestR6AutoSyncPrecedence:
         assert "workspace" in desc
         assert "mặc định" in desc
         assert "override" in desc or "ghi đè" in desc
+
+
+
+def test_keepalive_expedite_shortens_deadline_once_without_interval_change():
+    """Urgent tracker deadlines wake once; base ALIVE cadence stays 60s."""
+    from ctf_downloader.services.watch_service import PollScheduler
+
+    now = 1_000.0
+    sched = PollScheduler(jitter=0.0, rng=lambda lo, hi: lo)
+    sched.register("keepalive", 60, due_now=False)
+    sched._tasks["keepalive"]["deadline"] = now + 60
+
+    assert sched.expedite("keepalive", now + 5) is True
+    assert sched._tasks["keepalive"]["interval"] == 60
+    assert sched._tasks["keepalive"]["deadline"] == now + 5
+
+    sched.postpone("keepalive", now=now + 5)
+    assert sched._tasks["keepalive"]["interval"] == 60
+    assert sched._tasks["keepalive"]["deadline"] == now + 65
+
+
+def test_watch_service_keepalive_setup_failure_warns_once(tmp_path):
+    from unittest.mock import patch
+
+    from ctf_downloader.services.watch_service import WatchService
+
+    svc = WatchService(str(tmp_path), once=True, use_live_ui=False)
+    with patch("ctf_downloader.services.instance_service.InstanceService") as service_ctor, \
+            patch.object(WatchService, "_setup_platform"), \
+            patch.object(WatchService, "_resolve_window", return_value=None), \
+            patch.object(WatchService, "_open_live"), \
+            patch.object(WatchService, "_main_loop"), \
+            patch.object(WatchService, "_shutdown"), \
+            patch.object(WatchService, "_effective_auto_sync_enabled", return_value=True), \
+            patch("ctf_downloader.services.instance_keepalive.InstanceKeepAlive",
+                  side_effect=RuntimeError("setup boom")):
+        service_ctor.return_value.repo = None
+        assert svc.run() == 0
+
+    assert "setup boom" in svc.keepalive_init_error
+    with patch("ctf_downloader.services.watch_service.Logger.warning") as warning:
+        assert svc._tick_keepalive() == []
+        assert svc._tick_keepalive() == []
+    messages = [call.args[0] for call in warning.call_args_list]
+    assert sum(message.startswith("WatchService keepalive unavailable:")
+               for message in messages) == 1
+
+
+def test_keepalive_setup_warning_does_not_hide_other_watch_task_error(tmp_path):
+    from unittest.mock import patch
+
+    from ctf_downloader.services.watch_service import PollScheduler, WatchService
+
+    scheduler = PollScheduler(jitter=0.0, rng=lambda lo, hi: lo)
+    scheduler.register("scoreboard", 60)
+    scheduler.register("keepalive", 60)
+    svc = WatchService(str(tmp_path), once=True, use_live_ui=False,
+                       scheduler=scheduler)
+    svc.keepalive_init_error = "InstanceKeepAlive initialization failed: setup boom"
+    with patch.object(svc, "_tick_scoreboard",
+                      side_effect=RuntimeError("scoreboard boom")), \
+            patch("ctf_downloader.services.watch_service.Logger.warning") as warning:
+        lines = svc._run_round({})
+
+    assert any("task scoreboard lỗi: scoreboard boom" in line for line in lines)
+    messages = [call.args[0] for call in warning.call_args_list]
+    assert sum(message.startswith("WatchService keepalive unavailable:")
+               for message in messages) == 1
+
+
+def test_keepalive_tick_supports_partially_constructed_watch_service():
+    from ctf_downloader.services.watch_service import WatchService
+
+    svc = WatchService.__new__(WatchService)
+    svc.keepalive = None
+    assert svc._tick_keepalive() == []
+
+
+def test_watch_service_applies_expedite_only_for_tracker_deadline_states(tmp_path):
+    from types import SimpleNamespace
+    from ctf_downloader.services.watch_service import PollScheduler, WatchService
+
+    svc = WatchService(str(tmp_path), once=True, use_live_ui=False,
+                       scheduler=PollScheduler(jitter=0.0,
+                                               rng=lambda lo, hi: lo))
+    svc.scheduler.register("keepalive", 60, due_now=False)
+    import time
+    wall_base = time.time()
+    mono_base = time.monotonic()
+    svc.scheduler._tasks["keepalive"]["deadline"] = wall_base + 1000
+    svc.keepalive = SimpleNamespace(trackers={
+        "retry": SimpleNamespace(state="RENEW_FAILED", phase_deadline=mono_base + 100),
+        "boot": SimpleNamespace(state="RESTARTING", phase_deadline=mono_base + 200),
+        "backoff": SimpleNamespace(state="RESTART_BACKOFF", backoff_deadline=mono_base + 300),
+        "alive": SimpleNamespace(state="ALIVE", phase_deadline=mono_base + 1),
+    })
+
+    svc._expedite_keepalive_deadline()
+    assert abs(svc.scheduler._tasks["keepalive"]["deadline"] - (wall_base + 100)) < 0.1
+    assert svc.scheduler._tasks["keepalive"]["interval"] == 60
+
+
+def test_watch_round_applies_keepalive_expedite_after_regular_postpone(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    import time
+
+    from ctf_downloader.services.watch_service import PollScheduler, WatchService
+
+    scheduler = PollScheduler(jitter=0.0, rng=lambda lo, hi: lo)
+    scheduler.register("keepalive", 60, due_now=True)
+    svc = WatchService(str(tmp_path), once=True, use_live_ui=False,
+                       scheduler=scheduler)
+    svc.keepalive = SimpleNamespace(trackers={
+        "retry": SimpleNamespace(state="RENEW_FAILED",
+                                  phase_deadline=time.monotonic() + 5),
+    })
+    with patch.object(svc, "_tick_keepalive", return_value=[]):
+        svc._run_round({})
+
+    assert scheduler._tasks["keepalive"]["interval"] == 60
+    assert scheduler._tasks["keepalive"]["deadline"] < time.time() + 6
+
+
+def test_update_local_instance_info_syncs_challenge_readme_and_parses_endpoints(tmp_path):
+    import json
+    from ctf_downloader.services.instance_service import InstanceService
+    from ctf_downloader.storage.workspace_repo import WorkspaceRepo
+
+    chal_dir = tmp_path / "Web" / "chall1"
+    chal_sub = chal_dir / "challenge"
+    solver_sub = chal_dir / "solver"
+    chal_sub.mkdir(parents=True)
+    solver_sub.mkdir(parents=True)
+
+    meta_file = chal_dir / "metadata.json"
+    meta_file.write_text(json.dumps({"id": 101, "name": "chall1", "category": "Web"}), encoding="utf-8")
+
+    readme_file = chal_sub / "README.md"
+    readme_file.write_text("# chall1\n\n## 📝 Description\nFind the flag.\n", encoding="utf-8")
+
+    solve_file = solver_sub / "solve.py"
+    solve_file.write_text('HOST = "old.host"\nPORT = 1111\nTARGET_URL = "http://old"\n', encoding="utf-8")
+
+    svc = InstanceService.__new__(InstanceService)
+    svc.workspace_path = str(tmp_path)
+    svc.repo = WorkspaceRepo(str(tmp_path))
+
+    # Test nc endpoint
+    svc._update_local_instance_info(101, entry="nc 10.10.10.10 9999", time_left=1800, status="running")
+
+    # Verify challenge/README.md was updated with the service block
+    readme_content = readme_file.read_text(encoding="utf-8")
+    assert "## 🔌 Connection / Service" in readme_content
+    assert "nc 10.10.10.10 9999" in readme_content
+
+    # Verify solve.py was updated with parsed host and port
+    solve_content = solve_file.read_text(encoding="utf-8")
+    assert 'HOST = "10.10.10.10"' in solve_content
+    assert 'PORT = 9999' in solve_content
+
+    # Test IPv6 host:port without crash
+    svc._update_local_instance_info(101, entry="[::1]:8888", time_left=1200, status="running")
+    solve_content_v6 = solve_file.read_text(encoding="utf-8")
+    assert 'HOST = "::1"' in solve_content_v6
+    assert 'PORT = 8888' in solve_content_v6
+
+    # Test DEFAULT_HOST and DEFAULT_PORT in solve.py
+    solve_file.write_text('DEFAULT_HOST = "old.pwn.host"\nDEFAULT_PORT = 1337\n', encoding="utf-8")
+    svc._update_local_instance_info(101, entry="pwn.ctf.org:31337", time_left=600, status="running")
+    solve_content_def = solve_file.read_text(encoding="utf-8")
+    assert 'DEFAULT_HOST = "pwn.ctf.org"' in solve_content_def
+    assert 'DEFAULT_PORT = 31337' in solve_content_def
+
+
+def test_release_lock_preserves_other_pid(tmp_path):
+    from pathlib import Path
+    from ctf_downloader.services.watch_service import WatchStateStore
+
+    store = WatchStateStore(str(tmp_path))
+    lock_file = Path(store.lock_path)
+    lock_file.parent.mkdir(parents=True, exist_ok=True)
+    lock_file.write_text("999999", encoding="utf-8")
+
+    # release_lock without force does not remove lock of another PID
+    store.release_lock(force=False)
+    assert lock_file.exists()
+    assert lock_file.read_text().strip() == "999999"
+
+    # release_lock with force removes it
+    store.release_lock(force=True)
+    assert not lock_file.exists()
+
+
+def test_hoard_flag_syncs_flag_txt(tmp_path):
+    import json
+    from ctf_downloader.services.submit_service import SubmitService
+    from ctf_downloader.storage.workspace_repo import WorkspaceRepo
+
+    chal_dir = tmp_path / "Crypto" / "rsa1"
+    chal_dir.mkdir(parents=True)
+    meta_file = chal_dir / "metadata.json"
+    meta_file.write_text(json.dumps({"id": 42, "name": "rsa1", "category": "Crypto"}), encoding="utf-8")
+
+    (tmp_path / "challenges.json").write_text(json.dumps({
+        "ctf_info": {"url": "http://ctf.test", "platform_type": "ctfd"},
+        "challenges": [{"id": 42, "name": "rsa1", "category": "Crypto"}]
+    }), encoding="utf-8")
+
+    svc = SubmitService.__new__(SubmitService)
+    svc.workspace_dir = str(tmp_path)
+    svc.repo = WorkspaceRepo(str(tmp_path))
+    svc.url = "http://ctf.test"
+    svc.explicit_flag_format = None
+    svc.challenges_cache = {"42": {"id": 42, "name": "rsa1", "category": "Crypto"}}
+
+    ok, msg = svc.hoard_flag(42, "FLAG{hoard_to_file}")
+    assert ok is True
+
+    flag_file = chal_dir / "flag.txt"
+    assert flag_file.exists()
+    assert flag_file.read_text(encoding="utf-8").strip() == "FLAG{hoard_to_file}"

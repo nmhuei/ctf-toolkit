@@ -67,12 +67,10 @@ SWITCHER_TITLE_W = 30
 SWITCHER_PLATFORM_W = 8
 
 _MAIN_ACTIONS_RAW = (
-    ('1', '🎯', 'Select CTF Workspace', ''),
-    ('2', '🏁', 'Flag Format', ''),
-    ('3', '🚩', 'Submit Flag', ''),
-    ('4', '🏆', 'Scoreboard & Rank', ''),
-    ('5', '🌐', 'Dynamic Containers', ''),
-    ('S', '⚡', 'SuperBQA AI Solver', ''),
+    ('1', '🎯', 'Challenges', 'Select a challenge and run challenge actions'),
+    ('2', '⚡', 'AI Solver', 'Run SuperBQA solver workflows'),
+    ('3', '📁', 'Workspace', 'Switch or manage CTF workspace'),
+    ('4', '⚙️', 'Settings', 'Configure auth, themes, and preferences'),
     ('0', '🚪', 'Exit', ''),
 )
 
@@ -549,7 +547,7 @@ class CTFInteractiveConsole:
                     )
                 _menu_console().print(Padding(grid, (0, 2)))
 
-                prompt_msg = 'Select action (1-5, S=Solver, 0=Exit [T=Theme]): '
+                prompt_msg = 'Select action (1-4, 0=Exit): '
                 raw_choice = _prompt(prompt_msg).strip()
                 choice = raw_choice.strip(" []().")
                 if not choice and self._last_action:
@@ -573,18 +571,26 @@ class CTFInteractiveConsole:
                 # Map alias/shortcuts to canonical action keys
                 key_map = {
                     '0': '0', 'q': '0', 'quit': '0', 'exit': '0', 'thoat': '0',
-                    '1': '1', 'workspace': '1', 'ws': '1', 'target': '1',
-                    '2': '2', 'format': '2', 'flagformat': '2',
-                    '3': '3', 'flag': '3', 'submit': '3', 'nop': '3',
-                    '4': '4', 'rank': '4', 'ranking': '4', 'scoreboard': '4', 'board': '4', 'bxh': '4',
-                    '5': '5', 'instance': '5', 'instances': '5', 'container': '5', 'containers': '5', 'dock': '5', 'docker': '5',
-                    's': 'S', 'solve': 'S', 'solver': 'S', 'bqa': 'S', 'eating': 'S',
+                    '1': '1', 'challenge': '1', 'challenges': '1', 'target': '1',
+                    '2': '2', 'solve': '2', 'solver': '2', 'bqa': '2', 's': '2',
+                    '3': '3', 'workspace': '3', 'ws': '3',
+                    '4': '4', 'settings': '4', 'config': '4', 'preferences': '4',
+
+                    # Preserve legacy shortcuts.
                     'g': 'G', 'git': 'G', 'sync': 'G', 'push': 'G', 'backup': 'G',
                     't': 'T', 'theme': 'T', 'color': 'T', 'colors': 'T', 'style': 'T',
                 }
                 canonical = key_map.get(choice_lower, choice.upper() if choice.upper() in ('G', 'T', 'S') else choice)
 
-                if canonical == '0':
+                if canonical == '1':
+                    self._safe_run_action(self._menu_challenges)
+                elif canonical == '2':
+                    self._safe_run_action(self._menu_solver)
+                elif canonical == '3':
+                    self._safe_run_action(self._menu_switch_workspace)
+                elif canonical == '4':
+                    self._safe_run_action(self._menu_settings)
+                elif canonical == '0':
                     from .ui.theme import get_active_palette
                     from .storage.global_config import update_global_config
                     cur_pal = get_active_palette()
@@ -593,18 +599,6 @@ class CTFInteractiveConsole:
                         Text('\nGoodbye! Good luck with your CTF competition.\n',
                              style=FG_MUTED))
                     break
-                elif canonical == '1':
-                    self._safe_run_action(self._menu_switch_workspace)
-                elif canonical == '2':
-                    self._safe_run_action(self._menu_flag_format)
-                elif canonical == '3':
-                    self._safe_run_action(self._menu_submit_flag)
-                elif canonical == '4':
-                    self._safe_run_action(self._menu_ranking)
-                elif canonical == '5':
-                    self._safe_run_action(self._menu_container_manager)
-                elif canonical == 'S':
-                    self._safe_run_action(self._menu_solver)
                 elif canonical == 'G':
                     con = _menu_console()
                     con.print()
@@ -625,10 +619,10 @@ class CTFInteractiveConsole:
                 elif canonical == '9':
                     self._safe_run_action(self._menu_configure_auth)
                 else:
-                    Logger.warning('Invalid selection. Please choose an option from 1 to 5, S, or 0.')
+                    Logger.warning('Invalid selection. Please choose an option from 1 to 4 or 0.')
                 # Ghi nhớ hành động gần nhất để vòng sau đánh dấu ❯ (§S1.1);
                 # input lạ ('x', '99') không được tính là action.
-                if canonical in ('1', '2', '3', '4', '5', 'S', 'G', 'T'):
+                if canonical in ('1', '2', '3', '4', 'G', 'T'):
                     self._last_action = canonical
             except (EOFError, KeyboardInterrupt):
                 from .ui.theme import get_active_palette
@@ -645,6 +639,47 @@ class CTFInteractiveConsole:
                     import traceback
                     traceback.print_exc()
                 _pause()
+
+    def _menu_challenges(self):
+        """Challenge-first hub: keep all challenge actions under one context."""
+        actions = [
+            ("1", "Select challenge"),
+            ("0", "Back"),
+        ]
+        ch = render_hub_menu(
+            title="Challenges",
+            subtitle="Choose a challenge context first",
+            actions=actions,
+            prompt_text="Select action (0-1): ",
+        )
+        if ch in ("0", "", "q", "back"):
+            return
+        if ch == "1":
+            return self._menu_view_challenge_detail()
+
+    def _menu_settings(self):
+        """Low-frequency configuration actions moved out of the home screen."""
+        actions = [
+            ("1", "Flag format"),
+            ("2", "Authentication"),
+            ("3", "Theme"),
+            ("4", "Git workflow"),
+            ("0", "Back"),
+        ]
+        ch = render_hub_menu(
+            title="Settings",
+            subtitle="Advanced options",
+            actions=actions,
+            prompt_text="Select action (0-4): ",
+        )
+        if ch == "1":
+            return self._menu_flag_format()
+        if ch == "2":
+            return self._menu_configure_auth()
+        if ch == "3":
+            return self._menu_theme()
+        if ch == "4":
+            return self._menu_git()
 
     def _menu_download_new(self):
         _section('Download & Initialize New CTF Competition')
@@ -1315,16 +1350,16 @@ class CTFInteractiveConsole:
         current_fmt = self._get_flag_format()
         ws_name = os.path.basename(self.workspace_path)
 
-        con.print(f"  [bold]Workspace:[/bold] [cyan]{ws_name}[/cyan]")
+        con.print(f"  [bold]Workspace:[/bold] [{ACCENT}]{ws_name}[/{ACCENT}]")
         if current_fmt:
             prefix = extract_format_prefix(current_fmt)
-            prefix_info = f" (Prefix: [bold cyan]{prefix}[/bold cyan])" if prefix else ""
-            con.print(f"  [bold]Current Flag Format:[/bold] [green]{current_fmt}[/green]{prefix_info}")
+            prefix_info = f" (Prefix: [bold {ACCENT}]{prefix}[/bold {ACCENT}])" if prefix else ""
+            con.print(f"  [bold]Current Flag Format:[/bold] [{SUCCESS}]{current_fmt}[/{SUCCESS}]{prefix_info}")
         else:
             con.print(f"  [bold]Current Flag Format:[/bold] [dim italic]Not set[/dim italic]")
         con.print()
         con.print("  [dim]Enter new format (e.g. CSSCTF{...}, FLAG, or regex ^CTF\\{.+\\}$).[/dim]")
-        con.print("  [dim]Press Enter to keep current, or 'clear' to remove.[/dim]")
+        con.print("  [dim]Press Enter to keep current, 'clear/reset/none/rm' to remove, or '0' to cancel.[/dim]")
         con.print()
 
         try:
@@ -1335,7 +1370,10 @@ class CTFInteractiveConsole:
         if not val:
             return
 
-        if val.lower() in ('clear', 'reset', 'none', 'rm', '0'):
+        if val.lower() in ('0', 'back', 'cancel', 'q'):
+            return
+
+        if val.lower() in ('clear', 'reset', 'none', 'rm'):
             self._set_flag_format("")
             Logger.success(f"Cleared flag format for workspace: {ws_name}")
             _pause()
@@ -1382,14 +1420,14 @@ class CTFInteractiveConsole:
             if not validate_flag(flag_str, fmt):
                 wrapped_flag = wrap_flag_to_format(flag_str, fmt)
                 Logger.warning(f"⚠️ Flag không đúng format đã cấu hình: {fmt}")
-                con.print(f"  Flag đã nhập:  [bold yellow]{flag_str}[/bold yellow]")
+                con.print(f"  Flag đã nhập:  [bold {WARN}]{flag_str}[/bold {WARN}]")
                 has_wrap = (wrapped_flag != flag_str)
                 if has_wrap:
-                    con.print(f"  Gợi ý wrap:    [bold green]{wrapped_flag}[/bold green]")
+                    con.print(f"  Gợi ý wrap:    [bold {SUCCESS}]{wrapped_flag}[/bold {SUCCESS}]")
                 con.print()
                 con.print("  [1] Tiếp tục submit flag này nguyên bản")
                 if has_wrap:
-                    con.print(f"  [2] Wrap lại thành [bold green]{wrapped_flag}[/bold green] rồi submit")
+                    con.print(f"  [2] Wrap lại thành [bold {SUCCESS}]{wrapped_flag}[/bold {SUCCESS}] rồi submit")
                 con.print("  [0] Huỷ bỏ (Cancel)")
                 con.print()
                 try:
@@ -1585,7 +1623,7 @@ class CTFInteractiveConsole:
 
             engine_name = getattr(self, "_solver_engine", None) or solver_default_engine(service.workspace)
             self._solver_engine = engine_name
-            con.print(f"  [bold cyan]⚙ Engine:[/bold cyan] [bold white]{engine_name.upper()}[/bold white]  ·  (Press 8 to switch engine)")
+            con.print(f"  [bold {ACCENT}]⚙ Engine:[/bold {ACCENT}] [bold {FG_BASE}]{engine_name.upper()}[/bold {FG_BASE}]  ·  (Press 8 to switch engine)")
 
             con.print()
             _option('1', 'BQA EATING')
@@ -2426,4 +2464,3 @@ def launch_interactive_menu(workspace_path: Optional[str] = None, cookie: Option
         if os.environ.get("CTF_DEBUG") == "1":
             import traceback
             traceback.print_exc()
-

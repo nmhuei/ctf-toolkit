@@ -32,6 +32,8 @@ def resolve_agy_binary(candidate: str = "agy") -> str:
     if candidate == "agy":
         fallbacks = [
             Path.home() / ".local" / "bin" / "agy",
+            Path.home() / ".gemini" / "antigravity-cli" / "bin" / "agy",
+            Path.home() / ".antigravity" / "bin" / "agy",
             Path(sys.prefix) / "bin" / "agy",
             Path("/usr/local/bin/agy"),
             Path("/usr/bin/agy"),

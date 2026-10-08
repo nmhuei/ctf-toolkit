@@ -180,15 +180,60 @@ class TestInstanceSyncAndPick(unittest.TestCase):
         self.mgr.list_containers = MagicMock(return_value=[])
         self.assertEqual(self.mgr.sync_containers(), 0)
 
+    def test_start_instance_ignores_non_dict_post_start_status(self):
+        self.mgr.platform.start_instance.return_value = (True, {"message": "started"})
+        self.mgr.platform.get_instance_status.return_value = "starting"
+
+        ok, info = self.mgr.start_instance(10)
+
+        self.assertTrue(ok)
+        self.assertEqual(info["message"], "started")
+
+    def test_extend_instance_ignores_non_dict_post_extend_status(self):
+        self.mgr.platform.extend_instance.return_value = (True, "extended")
+        self.mgr.platform.get_instance_status.return_value = "running"
+
+        ok, message = self.mgr.extend_instance(10)
+
+        self.assertTrue(ok)
+        self.assertEqual(message, "extended")
+
+    def test_get_status_normalizes_non_dict_adapter_response(self):
+        self.mgr.platform.get_instance_status.return_value = "running"
+
+        status = self.mgr.get_status(10)
+
+        self.assertEqual(status, {
+            "status": "unknown",
+            "entry": None,
+            "time_left": None,
+            "reason": "invalid_response",
+        })
+
+    def test_sync_containers_ignores_non_dict_adapter_response(self):
+        self.mgr.platform.get_instance_status.return_value = "running"
+        self.mgr.list_containers = MagicMock(return_value=[{"id": 10, "name": "Dyn A"}])
+
+        active = self.mgr.sync_containers()
+
+        self.assertEqual(active, 0)
+
+
     def test_interactive_pick_start_flow(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+
         container = {"id": 10, "name": "Dyn A", "category": "Web"}
         self.mgr.list_containers = MagicMock(return_value=[container])
         self.mgr.start_instance = MagicMock()
+        output = StringIO()
 
-        with patch("builtins.input", side_effect=["1", "1"]):  # chọn chall 1 -> action start
+        with redirect_stdout(output), patch("builtins.input", side_effect=["1", "1"]):
             self.mgr.interactive_pick()
 
         self.mgr.start_instance.assert_called_once_with(10)
+        self.assertIn("[1] Khởi động container", output.getvalue())
+        self.assertNotIn("[1] Khởi động / Gia hạn container", output.getvalue())
 
     def test_interactive_pick_invalid_choice_returns(self):
         self.mgr.list_containers = MagicMock(return_value=[{"id": 10, "name": "Dyn A", "category": "Web"}])

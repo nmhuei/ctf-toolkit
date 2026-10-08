@@ -1,36 +1,55 @@
-# Antigravity Agent Guidelines for auto_download_ctf_challenge
+# Antigravity Agent Guidelines for auto_download_ctf_challenge (ASD-STE100 Standard)
 
-## Collaborative Architecture & Review Rule
-1. **Codex CLI Consultation**:
-   - Sau khi hoàn thành bất kỳ mục lớn nào (major milestone/feature), hãy gọi `codex cli` (`/home/light/.local/bin/codex exec "..."`) lên hỗ trợ review code độc lập, cross-validate kiến trúc và cùng thảo luận ý tưởng đưa ra phương án cải tiến tiếp theo.
-2. **Cronjob Routine Check**:
-   - Mỗi khi cronjob (20 phút) kích hoạt, hãy đọc lại quy tắc này (`AGENTS.md` / `.agents/rules/major-task-codex-consult.md`) để duy trì đúng định hướng và không quên các nguyên tắc kiến trúc.
-3. **No Hardcoding & Modular Design**:
-   - Tuyệt đối không hardcode bất kỳ màu sắc, đường dẫn hoặc cấu hình tĩnh nào trực tiếp vào logic xử lý.
-   - Tách nhỏ các module (chia nhỏ trách nhiệm, single responsibility).
-   - Màu sắc và giao diện phải đi qua Theme system (`ctf_downloader/ui/theme.py`), hỗ trợ mở rộng theme (như Cyberpunk, Matrix Emerald, Amber Radar, ExOdia Cyan) mà không sửa đổi code lõi.
-4. **Full Autonomous Authority (Toàn quyền tự quyết & Tự động hóa)**:
-   - Agent có toàn quyền quyết định phương án thiết kế, tái cấu trúc và tối ưu hóa tốt nhất theo tiêu chí đơn giản, hiện đại, tiện dụng.
-   - Tự hành động xuyên suốt từ lập kế hoạch, refactor, kiểm thử thực tế, debug chi tiết đến hoàn thiện mà không cần dừng lại xin xác nhận hay chờ approve từ user.
-5. **Solver Testing & Prompt Generation Guideline (Kiểm thử Solver & Prompt)**:
-   - Khi kiểm thử tính năng giải bài (solver/AGYworker) hoặc sinh prompt: chỉ cần đảm bảo luồng hoạt động ổn định, sinh prompt chuẩn xác, không kích hoạt/dính bộ lọc an toàn (cybersecurity filter/censorship) là coi như ĐẠT. Không cần ép agent phải giải hoàn chỉnh ra flag toàn bộ bài đó trong quá trình test.
-6. **Tactical UI Uniformity & Design System Standard (Quy chuẩn Đồng bộ Giao diện Tác Chiến)**:
-   - **Tài liệu quy chuẩn & Template**: Chi tiết tại `.agents/rules/ui-design-system-and-palette.md` và `.agents/skills/ctf-toolkit/references/ui_design_system_template.md`.
-   - **Semantic Color Tokens (Bảng màu chuẩn)**:
-     - Luôn import từ `.ui.theme`: `ACCENT`, `ACCENT_DEEP`, `FG_BASE`, `FG_FAINT`, `FG_MUTED`, `SUCCESS`, `SOLVED`, `WARN`, `ERROR`, `INFO`.
-     - ❌ Tuyệt đối không dùng `DANGER` (gây NameError, bắt buộc dùng `ERROR`).
-     - ❌ Tuyệt đối không hardcode hex code (`#...`) hay raw style (`[red]`, `[cyan]`).
-   - **Đồng bộ bố cục (Layout Consistency)**: Toàn bộ các menu, sub-hub, settings hoặc bảng hiển thị phải tuân thủ layout thống nhất của Cockpit:
-     - Header / Panel định danh: Sử dụng `app_header` hoặc `Panel(..., border_style=ACCENT_DEEP)` có tiêu đề rõ ràng, icon đại diện, subtitle/description xúc tích.
-     - Danh sách thao tác: Sử dụng Rich `Table.grid(padding=(0, 1))` bọc ngoài bởi `Padding(grid, (0, 2))`. Tuyệt đối không dùng string padding thủ công (như `" " * 15`, `\t` hay cột dummy `Text("  ")`).
-     - Cột chuẩn trong Grid: `[Key]` (phím số/chữ in hoa, `bold ACCENT` hoặc `menu.active` nếu active), `[Swatch]` (dải màu nếu là theme/color preview), `[Title]` (`FG_BASE` hoặc `menu.active` nếu active). Mục đang active được highlight toàn bộ bằng màu xanh lá (`menu.active`), tuyệt đối không in text rườm rà như `● active` hay `[default ...]` ở prompt để giữ giao diện tối giản, trực chiến.
-     - Tùy chọn thoát/quay lại: Luôn tích hợp `[0]` thẳng vào bảng/grid, định dạng `bold FG_FAINT`, nhãn `Quay lại Menu chính` (`FG_MUTED`), không in rời rạc hay lệch lề.
-   - **Xử lý Ngoại lệ Mặc định (Default Exception Handling)**:
-     - Mọi menu action và vòng lặp UI `while True:` phải được bọc trong `try...except (EOFError, KeyboardInterrupt): break` và `except Exception as exc:` hiển thị lỗi qua `Logger.error(...)`, `_pause()`, không để crash văng ra shell.
-     - **Cô lập BQA khỏi UI**: UI interactive console tuyệt đối KHÔNG kích hoạt BQA auto-recovery (`offer_bqa_recovery`). BQA chỉ dành riêng cho các lệnh CLI tự động (`ctf pull`, `ctf instance`).
-   - **Dải màu trực quan (Color Ramps & Visual Swatches)**:
-     - Khi hiển thị theme hay bảng màu, luôn render các dải màu trực quan `[■■■■■■]` bằng mã màu thực tế của palette để người dùng preview trước khi chọn.
-     - Cung cấp live spectrum breakdown (Core tokens + Category tokens) trong panel showcase.
-   - **Thao tác nhanh & Linh hoạt**:
-     - Cho phép người dùng nhập cả số thứ tự (`1-10`) hoặc tên/alias trực tiếp (`dracula`, `tokyo`, `cyberpunk`, `q`, `exit`).
+## 1. Collaborative Architecture and Review Rule
+- **Cronjob Verification:**
+  - When the 20-minute cronjob triggers, verify adherence to `AGENTS.md` rules.
 
+## 2. Zero-Hardcoding and Dynamic Extensibility
+- **Platform Extensibility:**
+  - Do NOT hardcode platform identifiers, adapters, or choices in core logic or menus.
+  - Use dynamic platform discovery to load declarative JSON schemas and Python adapters.
+  - Provide standardized platform templates for new platform integration.
+- **Theme and UI Tokens:**
+  - Do NOT hardcode colors, hex codes, or paths in business logic.
+  - Import semantic color tokens exclusively from `ctf_downloader.ui.theme`:
+    - `ACCENT`, `ACCENT_DEEP`, `FG_BASE`, `FG_FAINT`, `FG_MUTED`, `SUCCESS`, `SOLVED`, `WARN`, `ERROR`, `INFO`.
+    - Do NOT use `DANGER` (use `ERROR` instead).
+
+## 3. Autonomous Execution Authority
+- **Self-Directed Refactoring:**
+  - The agent has full authority to design, refactor, and optimize code for simplicity and performance.
+  - Execute planning, implementation, testing, and debugging continuously without blocking for confirmation.
+
+## 4. Solver Testing and Validation
+- **Acceptance Criteria:**
+  - Solver engine tests (AGYworker, SuperBQA) pass when the execution pipeline operates stably and prompt formatting succeeds.
+  - Do NOT require a complete live CTF flag extraction during local unit tests.
+
+## 5. User Interface Standards
+- **Layout Consistency:**
+  - Enforce uniform Cockpit layout across all interactive menus and hub displays.
+  - Use `Table.grid(padding=(0, 1))` enclosed in `Padding(grid, (0, 2))`.
+  - Do NOT use manual space padding strings.
+- **Standard Action Columns:**
+  - Structure grid columns: `[Key]`, `[Swatch]` (theme previews), and `[Title]`.
+  - Highlight active entries in green (`menu.active`).
+  - Embed option `[0]` (`Return to Main Menu`) directly within the table.
+- **Exception Isolation:**
+  - Enclose UI loops in `try...except (EOFError, KeyboardInterrupt): break`.
+  - Isolate BQA auto-recovery (`offer_bqa_recovery`) from interactive console menus.
+
+## 6. Isolated Test Environment & Sandbox Rule (bqa-trash)
+- **Mandatory Sandbox Location (`~/Downloads/bqa-trash/`):**
+  1. *Sân chơi nghịch ngợm thoải mái:* Cho phép tải file tạm, chạy script nháp, cào dữ liệu rác, bung file nén trong `~/Downloads/bqa-trash/`.
+  2. *Không bị mất khi tắt máy:* Nằm trên ổ cứng thật nên dữ liệu không bị xóa khi shutdown (ưu điểm hơn `/tmp`).
+  3. *Thùng rác một chạm:* Người dùng có thể xóa sạch toàn bộ thư mục này bất kỳ lúc nào mà không sợ xóa nhầm mã nguồn chính.
+- **Cleanliness:**
+  - Do NOT create test files or folders in the repository root.
+
+## 7. ASD-STE100 Documentation and Communication Standard
+- **Scope:** All documentation, guidelines, comments, and reports MUST adhere to ASD-STE100 principles.
+- **Rules:**
+  - Write short sentences (< 25 words).
+  - Use direct, active imperative verbs.
+  - Use consistent technical terms across modules.
+  - Present information in structured tables and concise steps.

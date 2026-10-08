@@ -8,8 +8,7 @@ Strictly adheres to the semantic theme palette with zero hardcoded styling.
 from __future__ import annotations
 
 import os
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from rich.console import Console
 from rich.panel import Panel
@@ -26,9 +25,6 @@ from .theme import (
     FG_FAINT,
     FG_MUTED,
     INFO,
-    SUCCESS,
-    WARN,
-    ERROR,
     load_theme,
 )
 from ..utils.logger import Logger

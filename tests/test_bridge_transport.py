@@ -284,6 +284,7 @@ def test_adaptive_session_routes_to_bridge_on_cf_challenge():
     success_resp._content = b'{"challenges": [{"id": 1, "name": "Sanity"}]}'
 
     with patch.object(requests.Session, "send", return_value=cf_resp), \
+         patch.object(AdaptiveSession, "_browser_request", return_value=cf_resp), \
          patch.object(BrowserBridgeTransport, "send", return_value=success_resp):
         resp = session.get("https://mirror-ctf.compfest.id/api/v1/challenges")
         assert resp.status_code == 200

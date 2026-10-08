@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import json
 import logging
 import os
 import tempfile
@@ -12,7 +11,6 @@ import uuid
 from typing import Any, Dict, Optional
 import requests
 from requests.structures import CaseInsensitiveDict
-import urllib.parse
 import websockets
 
 from .constants import (

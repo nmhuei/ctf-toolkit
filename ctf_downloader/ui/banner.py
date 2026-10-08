@@ -11,14 +11,12 @@ from rich.cells import cell_len
 from rich.text import Text
 
 from .brand import (
-    BRAND_NAME,
     get_brand_name,
     compact_brand,
     full_brand,
     operation_rail,
     terminal_width,
 )
-from .theme import ACCENT, FG_MUTED
 
 
 def _major_version() -> str:

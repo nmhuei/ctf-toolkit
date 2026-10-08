@@ -496,3 +496,28 @@ class TestAutoScan(TempWorkspaceCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSubmitSecurityRegression(unittest.TestCase):
+    def test_authentication_exception_blocks_network_submission(self):
+        ws = tempfile.mkdtemp(prefix="submit_auth_gate_")
+        try:
+            fs, platform = make_submitter(ws, flag_format=r"^FLAG\{.+\}$")
+            platform.authenticate.side_effect = RuntimeError("auth failed")
+            platform.submit_flag.reset_mock()
+            result = fs.submit(1, "FLAG{auth_gate}")
+            self.assertFalse(result[0])
+            platform.submit_flag.assert_not_called()
+        finally:
+            shutil.rmtree(ws, ignore_errors=True)
+
+    def test_submit_logs_do_not_include_full_flag(self):
+        ws = tempfile.mkdtemp(prefix="submit_log_flag_")
+        try:
+            fs, _ = make_submitter(ws, flag_format=r"^FLAG\{.+\}$")
+            with patch("ctf_downloader.services.submit_service.Logger.info") as log_info:
+                fs.submit(1, "FLAG{secret_value}")
+            messages = " ".join(str(call.args[0]) for call in log_info.call_args_list)
+            self.assertNotIn("FLAG{secret_value}", messages)
+        finally:
+            shutil.rmtree(ws, ignore_errors=True)

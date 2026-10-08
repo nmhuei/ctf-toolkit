@@ -1539,7 +1539,7 @@ class SolverService:
         stale_seconds: int = 1200,
         reuse_session: bool = True,
         per_category: bool = False,
-        engine: Optional[str] = None,
+        engine: str | None = None,
     ) -> dict:
         if not raw_ids or not str(raw_ids).strip():
             return {"success": False, "error": "NO_INPUT", "message": "No challenge selected."}
