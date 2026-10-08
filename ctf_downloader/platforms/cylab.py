@@ -5,7 +5,7 @@ import re
 from typing import Any, Dict, List, Tuple
 from urllib.parse import urljoin, urlsplit
 
-from .base import BasePlatform, safe_get, safe_get_json
+from .base import BasePlatform, safe_get_json
 from .registry import register
 from ..models import Challenge
 from ..utils.logger import Logger

@@ -8,6 +8,8 @@ from ..utils.sanitize import extract_filename_from_headers
 from .registry import register_downloader
 
 MEDIAFIRE_API_INFO_URL = "https://www.mediafire.com/api/1.4/file/get_info.php"
+_ARIA_DOWNLOAD_RE = re.compile(r"Download", re.I)
+_DIRECT_URL_RE = re.compile(r'https?://download[0-9]+\.mediafire\.com/[^\s"\'<>]+')
 
 _UNIT_MULTIPLIERS = {
     "b": 1,
@@ -169,7 +171,7 @@ class MediafireDownloader:
             # Ưu tiên nút HIỂN THỊ: trang có thể chứa nhiều a#downloadButton,
             # trong đó có nút decoy bị ẩn (display:none / hidden) — không chọn nó.
             candidates = list(soup.find_all("a", {"id": "downloadButton"}))
-            aria_btn = soup.find("a", {"aria-label": re.compile(r"Download", re.I)})
+            aria_btn = soup.find("a", {"aria-label": _ARIA_DOWNLOAD_RE})
             if aria_btn is not None:
                 candidates.append(aria_btn)
             download_btn = next(
@@ -184,7 +186,7 @@ class MediafireDownloader:
                 direct_url = download_btn["href"]
             else:
                 # Regex match for direct link in JS/HTML
-                match = re.search(r'https?://download[0-9]+\.mediafire\.com/[^\s"\'<>]+', page_resp.text)
+                match = _DIRECT_URL_RE.search(page_resp.text)
                 if match:
                     direct_url = match.group(0)
 

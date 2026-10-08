@@ -17,8 +17,18 @@ from ..extractors.link_extractor import ExtractedLink
 from ..utils.logger import Logger
 from ..utils.sanitize import extract_filename_from_url
 
-# Mặc định 1 GB; 0 = tắt gate (không bao giờ hỏi)
-DEFAULT_SIZE_LIMIT_BYTES = 1073741824
+def _env_size_limit() -> int:
+    val = os.environ.get("CTF_MAX_DOWNLOAD_SIZE")
+    if val:
+        try:
+            return int(val.strip())
+        except ValueError:
+            pass
+    return 1073741824
+
+
+# Mặc định 1 GB (hoặc ghi đè qua CTF_MAX_DOWNLOAD_SIZE); 0 = tắt gate
+DEFAULT_SIZE_LIMIT_BYTES = _env_size_limit()
 
 # Review-6 LOW: giãn cách giữa các HEAD probe TUẦN TỰ của preflight consent
 # — N probe bắn liên hoàn trên cùng một connection vào platform/filehost dễ

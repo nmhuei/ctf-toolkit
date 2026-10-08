@@ -12,6 +12,12 @@ from ..categories import CategoryDefinition, CategoryRegistry
 if TYPE_CHECKING:
     from .solver_service import SolverJob
 
+_SUSPICIOUS_CONN_RE = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b|nip\.io|sslip\.io|traefik\.me|local(?:host)?\b", re.IGNORECASE)
+_NC_CONN_RE = re.compile(r"\b(?:nc|ncat|netcat)\s+([a-zA-Z0-9.\-_]+)\s+([0-9]{1,5})\b", re.IGNORECASE)
+_HOST_PORT_CONN_RE = re.compile(r"\b([a-zA-Z0-9.\-_]+):([0-9]{1,5})\b", re.IGNORECASE)
+_URL_CONN_RE = re.compile(r"https?://([a-zA-Z0-9.\-_]+)(?::([0-9]{1,5}))?(?:/[a-zA-Z0-9.\-_/]*)?", re.IGNORECASE)
+
+
 
 def _find_workspace(start_path: Path | None) -> Path | None:
     """Find workspace root directory by looking for .ctf or known ancestor structure."""
@@ -77,27 +83,26 @@ class CategoryPromptBuilder:
         """Parse and sanitize connection info to prevent command execution, injection, or IP filter triggers."""
         if not conn_str:
             return ""
-        suspicious_re = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b|nip\.io|sslip\.io|traefik\.me|local(?:host)?\b", re.IGNORECASE)
         # Check if it's nc <host> <port>
-        nc_match = re.search(r"\b(?:nc|ncat|netcat)\s+([a-zA-Z0-9.\-_]+)\s+([0-9]{1,5})\b", conn_str)
+        nc_match = _NC_CONN_RE.search(conn_str)
         if nc_match:
             host, port = nc_match.group(1), nc_match.group(2)
-            if suspicious_re.search(host):
+            if _SUSPICIOUS_CONN_RE.search(host):
                 return f"Remote service configured in metadata.json (Port: {port})"
             return f"Host: {host}, Port: {port} (see metadata.json)"
         # Check if it's host:port
-        hp_match = re.search(r"\b([a-zA-Z0-9.\-_]+):([0-9]{1,5})\b", conn_str)
+        hp_match = _HOST_PORT_CONN_RE.search(conn_str)
         if hp_match:
             host, port = hp_match.group(1), hp_match.group(2)
-            if suspicious_re.search(host):
+            if _SUSPICIOUS_CONN_RE.search(host):
                 return f"Remote service configured in metadata.json (Port: {port})"
             return f"Host: {host}, Port: {port} (see metadata.json)"
         # Check if it's a URL
-        url_match = re.search(r"https?://([a-zA-Z0-9.\-_]+)(?::([0-9]{1,5}))?(?:/[a-zA-Z0-9.\-_/]*)?", conn_str)
+        url_match = _URL_CONN_RE.search(conn_str)
         if url_match:
             host = url_match.group(1)
             port = url_match.group(2) or ("443" if "https" in url_match.group(0) else "80")
-            if suspicious_re.search(host):
+            if _SUSPICIOUS_CONN_RE.search(host):
                 return f"Remote web endpoint configured in metadata.json (Port: {port})"
             clean_url = cls._sanitize_filter_terms(url_match.group(0))
             return f"Endpoint: {clean_url} (see metadata.json)"

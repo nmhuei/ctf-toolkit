@@ -1,8 +1,7 @@
 import math
 import os
 from collections import defaultdict
-from typing import List, Dict, Any
-from ..platforms.base import Challenge, CTFInfo
+from ..platforms.base import CTFInfo
 from ..services.status_service import ROW_GLYPHS
 from ..storage.constants import DEFAULT_CATEGORY, SUMMARY_FILES_LINE
 from ..storage.workspace_repo import WorkspaceRepo

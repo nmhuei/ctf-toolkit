@@ -20,7 +20,6 @@ Ràng buộc thực chiến BẮT BUỘC:
 from __future__ import annotations
 
 import datetime as _dt
-import os
 import random
 import re
 import socket

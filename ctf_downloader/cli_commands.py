@@ -2752,7 +2752,7 @@ def handle_platform(args):
     from rich.table import Table
     from rich.syntax import Syntax
     from rich.panel import Panel
-    from .ui.theme import load_theme, FG_BASE, FG_MUTED, FG_FAINT, ACCENT, INFO, SOLVED, WARN
+    from .ui.theme import load_theme, FG_BASE, FG_MUTED, ACCENT, INFO, SOLVED, WARN
     from .platforms.schema_store import PlatformSchemaStore
     from .platforms.schema import PlatformSchema
     from .platforms.recon import PlatformReconEngine

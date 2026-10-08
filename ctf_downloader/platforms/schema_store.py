@@ -9,9 +9,6 @@ of CTF platform definitions across three cascading tiers:
 
 from __future__ import annotations
 
-import json
-import os
-import re
 from pathlib import Path
 from typing import Dict, Optional, Type
 

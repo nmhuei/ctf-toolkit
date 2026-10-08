@@ -8,6 +8,11 @@ from ..utils.logger import Logger
 from ..extractors.link_extractor import KNOWN_FILE_EXTENSIONS
 from .registry import register
 
+_CARD_CLASS_RE = re.compile(r'card|box|item', re.I)
+_CATEGORY_CLASS_RE = re.compile(r'category|badge|type', re.I)
+_DESC_CLASS_RE = re.compile(r'desc|content|body', re.I)
+_POINTS_RE = re.compile(r'(\d+)\s*(?:pts|points|pt)?', re.I)
+
 
 @register("generic_html", label="Generic HTML", throttle=5.0,
           supports_scoreboard=False)
@@ -60,22 +65,22 @@ class GenericHTMLPlatform(BasePlatform):
 
         if not chall_elements:
             # Fallback: look for headers
-            chall_elements = soup.find_all(['div', 'article', 'section'], class_=re.compile(r'card|box|item', re.I))
+            chall_elements = soup.find_all(['div', 'article', 'section'], class_=_CARD_CLASS_RE)
 
         for idx, elem in enumerate(chall_elements, start=1):
             name_elem = elem.find(['h2', 'h3', 'h4', 'h5', 'strong', 'a'])
             name = name_elem.get_text(strip=True) if name_elem else f"Challenge_{idx}"
             
             # Extract category
-            cat_elem = elem.find(class_=re.compile(r'category|badge|type', re.I))
+            cat_elem = elem.find(class_=_CATEGORY_CLASS_RE)
             category = cat_elem.get_text(strip=True) if cat_elem else "General"
             
             # Extract description
-            desc_elem = elem.find(class_=re.compile(r'desc|content|body', re.I)) or elem
+            desc_elem = elem.find(class_=_DESC_CLASS_RE) or elem
             desc = desc_elem.get_text("\n", strip=True) if desc_elem else ""
 
             # Extract points
-            pts_match = re.search(r'(\d+)\s*(?:pts|points|pt)?', elem.get_text())
+            pts_match = _POINTS_RE.search(elem.get_text())
             points = int(pts_match.group(1)) if pts_match else 0
 
             # Extract attached file links

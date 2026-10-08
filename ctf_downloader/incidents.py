@@ -10,7 +10,7 @@ import os
 import sys
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Mapping, Optional, Sequence, Tuple
+from typing import Any, Mapping, Optional, Tuple
 
 
 class IncidentKind(str, Enum):

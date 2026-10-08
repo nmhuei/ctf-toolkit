@@ -4,6 +4,7 @@ FlagSubmitter trong ``ctf_downloader.submitter`` giờ chỉ là facade mỏng d
 về đây. Hằng message công khai (NO_FORMAT_MESSAGE...) được giữ nguyên vì test_sp1
 assert trực tiếp trên chuỗi.
 """
+import functools
 import os
 import re
 import sys
@@ -679,8 +680,10 @@ class SubmitService:
                 prefixes.insert(0, m.group(1))
         return prefixes
 
-    def _candidate_pattern(self, fmt: Optional[str]) -> re.Pattern:
-        prefixes = self._known_prefixes(fmt)
+    @staticmethod
+    @functools.lru_cache(maxsize=32)
+    def _candidate_pattern(fmt: Optional[str]) -> re.Pattern:
+        prefixes = SubmitService._known_prefixes(fmt)
         alternation = "|".join(re.escape(p) for p in prefixes)
         return re.compile(r'\b(?:' + alternation + r')\{([^{}\n]{1,256})\}')
 

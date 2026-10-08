@@ -23,6 +23,30 @@ KNOWN_FILE_EXTENSIONS = {
     '.raw', '.dmp', '.mem', '.enc', '.key', '.pem', '.crt', '.pub', '.db', '.sqlite', '.sqlite3'
 }
 
+_NON_CHALLENGE_DOMAINS = {
+    "drive.google.com", "docs.google.com", "dropbox.com", "www.dropbox.com",
+    "mediafire.com", "www.mediafire.com", "mega.nz", "mega.co.nz",
+    "github.com", "raw.githubusercontent.com", "gitlab.com",
+    "cdn.discordapp.com", "media.discordapp.net"
+}
+_HTTP_CONN_PATTERN = re.compile(
+    r'(https?://[a-zA-Z0-9\.\-_]+(?::[0-9]{2,5})?(?:/[^\s<>"\']*)?)',
+    re.IGNORECASE
+)
+_NC_CONN_PATTERN = re.compile(
+    r'(?:nc|ncat|netcat)\s+(?:-[a-zA-Z0-9]+\s+)*([a-zA-Z0-9\.\-_]+)\s+([0-9]{2,5})',
+    re.IGNORECASE
+)
+_HOST_PORT_CONN_PATTERN = re.compile(
+    r'(https?://)?(?:connect to|server|service|target|host)?\s*[:\s]?\s*([a-zA-Z0-9\-_]+\.[a-zA-Z0-9\.\-_]+):([0-9]{2,5})',
+    re.IGNORECASE
+)
+_SSH_CONN_PATTERN = re.compile(
+    r'ssh\s+(?:([a-zA-Z0-9\-_]+)@)?([a-zA-Z0-9\.\-_]+)(?:\s+-p\s+([0-9]+))?',
+    re.IGNORECASE
+)
+
+
 @dataclass
 class ExtractedLink:
     url: str
@@ -230,24 +254,14 @@ class LinkExtractor:
         conns = []
         
         # 1. HTTP(S) challenge URLs (e.g., http://web.ctf.site:5000 or http://chall.ctf.org:8080/login)
-        NON_CHALLENGE_DOMAINS = {
-            "drive.google.com", "docs.google.com", "dropbox.com", "www.dropbox.com",
-            "mediafire.com", "www.mediafire.com", "mega.nz", "mega.co.nz",
-            "github.com", "raw.githubusercontent.com", "gitlab.com",
-            "cdn.discordapp.com", "media.discordapp.net"
-        }
-        http_pattern = re.compile(
-            r'(https?://[a-zA-Z0-9\.\-_]+(?::[0-9]{2,5})?(?:/[^\s<>"\']*)?)',
-            re.IGNORECASE
-        )
-        for match in http_pattern.finditer(text):
+        for match in _HTTP_CONN_PATTERN.finditer(text):
             url = match.group(1)
             parsed = urllib.parse.urlparse(url)
             proto = parsed.scheme
             host = (parsed.hostname or "").lower()
             path = (parsed.path or "").lower()
 
-            if host in NON_CHALLENGE_DOMAINS or any(host.endswith("." + d) for d in NON_CHALLENGE_DOMAINS):
+            if host in _NON_CHALLENGE_DOMAINS or any(host.endswith("." + d) for d in _NON_CHALLENGE_DOMAINS):
                 continue
             # Skip if it is a direct file download link
             if any(path.endswith(ext) for ext in KNOWN_FILE_EXTENSIONS):
@@ -263,11 +277,7 @@ class LinkExtractor:
                 ))
 
         # 2. Netcat patterns: nc [-options] host port / ncat ... / socat ...
-        nc_pattern = re.compile(
-            r'(?:nc|ncat|netcat)\s+(?:-[a-zA-Z0-9]+\s+)*([a-zA-Z0-9\.\-_]+)\s+([0-9]{2,5})',
-            re.IGNORECASE
-        )
-        for match in nc_pattern.finditer(text):
+        for match in _NC_CONN_PATTERN.finditer(text):
             host = match.group(1)
             port = int(match.group(2))
             conns.append(ConnectionInfo(
@@ -278,11 +288,7 @@ class LinkExtractor:
             ))
 
         # 3. Host:port pattern (e.g., "chall.ctf.org:31337" or "192.168.1.1:8080")
-        host_port_pattern = re.compile(
-            r'(https?://)?(?:connect to|server|service|target|host)?\s*[:\s]?\s*([a-zA-Z0-9\-_]+\.[a-zA-Z0-9\.\-_]+):([0-9]{2,5})',
-            re.IGNORECASE
-        )
-        for match in host_port_pattern.finditer(text):
+        for match in _HOST_PORT_CONN_PATTERN.finditer(text):
             has_http = match.group(1)
             if has_http:
                 continue
@@ -297,11 +303,7 @@ class LinkExtractor:
                 ))
 
         # 4. SSH patterns: ssh [user@]host -p port
-        ssh_pattern = re.compile(
-            r'ssh\s+(?:([a-zA-Z0-9\-_]+)@)?([a-zA-Z0-9\.\-_]+)(?:\s+-p\s+([0-9]+))?',
-            re.IGNORECASE
-        )
-        for match in ssh_pattern.finditer(text):
+        for match in _SSH_CONN_PATTERN.finditer(text):
             user = match.group(1) or "user"
             host = match.group(2)
             port = int(match.group(3)) if match.group(3) else 22

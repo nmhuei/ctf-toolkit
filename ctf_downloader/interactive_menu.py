@@ -1,7 +1,6 @@
 import os
 import sys
 import time
-import glob
 from pathlib import Path
 from typing import Optional
 
@@ -45,17 +44,11 @@ from .solver.settings import solver_default_engine, set_last_solver_engine
 from .ui.banner import app_header
 from .ui.selection import MENU_CURSOR, fit_cells, selected_row
 from .ui.splash import splash
-from .ui.theme import ACCENT, ACCENT_DEEP, FG_BASE, FG_FAINT, FG_MUTED, INFO, WARN, ERROR, SUCCESS, SOLVED, SOLVED as _SOLVED_COLOR, load_theme
+from .ui.theme import ACCENT, ACCENT_DEEP, FG_BASE, FG_FAINT, FG_MUTED, INFO, WARN, ERROR, SUCCESS, SOLVED, load_theme
 from .ui.widgets import SOLVE_RAMP, meter
+from .ui.menu_hubs import challenge_action_card, render_hub_menu
 
-from .ui.menu_hubs import (
-    hub_workspace_targets,
-    hub_challenge_operations,
-    hub_flag_submission,
-    hub_system_arsenal,
-    challenge_action_card,
-    render_hub_menu,
-)
+_SOLVED_COLOR = SOLVED
 
 #: Meter dùng chung ramp 3 mốc spec §3.3 (than hồng → hổ phách → vàng nhạt)
 #: — ``ui.widgets.AMBER_RAMP`` canonical theo SPEC UI v2 §M1: mỗi ô nhận
@@ -2151,7 +2144,7 @@ class CTFInteractiveConsole:
 
     def _menu_git(self):
         import subprocess
-        from .services.git_workflow import GitWorkflowService, GitWorkflowError
+        from .services.git_workflow import GitWorkflowService
         _section('Git Sync & Remote Backup')
         con = _menu_console()
 

@@ -15,7 +15,6 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 from rich.padding import Padding
-from rich.cells import cell_len
 from rich import box
 
 from .theme import (

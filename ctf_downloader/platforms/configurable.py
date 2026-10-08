@@ -7,7 +7,6 @@ based strictly on declarative JSON endpoint specifications and field mappings.
 
 from __future__ import annotations
 
-import re
 import urllib.parse
 from typing import Any, Dict, List, Optional, Tuple
 
