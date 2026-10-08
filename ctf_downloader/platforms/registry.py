@@ -13,7 +13,7 @@ import importlib
 import pkgutil
 
 from dataclasses import dataclass
-from typing import Callable, Dict, Tuple, Type
+from typing import Callable, Dict, Optional, Tuple, Type
 
 import ctf_downloader.platforms as platforms_pkg
 

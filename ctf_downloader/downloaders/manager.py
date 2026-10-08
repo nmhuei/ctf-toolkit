@@ -405,7 +405,7 @@ class DownloadManager:
         Downloads all platform files and 3rd party files for a single challenge.
         """
         results = []
-        download_targets = []
+        download_targets: List[Dict[str, Any]] = []
         seen_urls = set()
 
         # Add explicit platform files

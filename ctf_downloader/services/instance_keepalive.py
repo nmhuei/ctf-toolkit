@@ -40,7 +40,7 @@ POLL_INTERVAL_DUE = 5           # DUE_SOON / RENEW_FAILED poll nhanh hơn
 TCP_PROBE_PERIOD = 15           # giây giữa 2 lần probe TCP
 TCP_PROBE_THRESHOLD = 3         # số lần fail liên tiếp trước khi nghi DEAD
 RENEW_LEAD_FRACTION = 0.6       # RENEW_LEAD ≈ 60% cửa sổ lifetime
-RENEW_WINDOW_CAP = 600          # clamp ≤10' — GZCTF chỉ nhận extend trong
+RENEW_WINDOW_CAP = 600.0        # clamp ≤10' — GZCTF chỉ nhận extend trong
                                 # RenewalWindow cuối, gọi sớm → 400
 SAFETY_MARGIN = 90              # giây — ngừng retry renew khi còn ít hơn thế
 RENEW_MAX_ATTEMPTS = 4

@@ -1,6 +1,7 @@
 import math
 import os
 from collections import defaultdict
+from typing import Any, Dict, List
 from ..platforms.base import CTFInfo
 from ..services.status_service import ROW_GLYPHS
 from ..storage.constants import DEFAULT_CATEGORY, SUMMARY_FILES_LINE

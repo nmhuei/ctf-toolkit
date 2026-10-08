@@ -49,6 +49,7 @@ class PlatformInfo:
     })
     game_id: Optional[int] = None
     version_hints: Dict[str, Any] = field(default_factory=dict)
+    candidate_schema: Optional[Any] = None
 
     def add_signal(self, signal: str) -> None:
         """Ghi nhận một dấu hiệu khớp/không khớp (tránh ghi trùng)."""

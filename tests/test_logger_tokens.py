@@ -88,6 +88,19 @@ class TestLoggerPhosphorTokens(unittest.TestCase):
         with self.assertRaises(rich.errors.MissingStyle):
             logger_mod.console.get_style("highlight")
 
+    def test_debug_suppressed_by_default(self):
+        import os
+        with patch.dict(os.environ, {}, clear=True):
+            out = self._render("debug", "Verbose tracing detail")
+            self.assertEqual(out, "")
+
+    def test_debug_rendered_when_ctf_debug_set(self):
+        import os
+        with patch.dict(os.environ, {"CTF_DEBUG": "1"}):
+            out = self._render("debug", "Verbose tracing detail")
+            self.assertIn("[*] Verbose tracing detail", self._strip_ansi(out))
+
+
 
 
 class TestLoggerMarkupContract(unittest.TestCase):

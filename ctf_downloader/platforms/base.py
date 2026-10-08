@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime  # noqa: F401 — dùng trong type hint EventTimes
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Union
 
 from ..models import Challenge, CTFInfo, Verdict  # noqa: F401
 

@@ -1,3 +1,4 @@
+import os
 from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
@@ -27,6 +28,11 @@ def _safe_body(msg: str, markup: bool) -> str:
 
 
 class Logger:
+    @staticmethod
+    def debug(msg: str, markup: bool = False):
+        if os.environ.get("CTF_DEBUG") in ("1", "true", "True"):
+            console.print(f"[fg.muted][*][/fg.muted] {_safe_body(msg, markup)}")
+
     @staticmethod
     def info(msg: str, markup: bool = False):
         # [*] là chrome điều hướng → amber tắt đèn (ACCENT_DEEP), không cyan.
