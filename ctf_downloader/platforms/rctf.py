@@ -128,6 +128,7 @@ def probe_rctf_challs(origin: str, session, info, done: set) -> bool:
           html_markers=('name="rctf-config"', r'regex:"kind"\s*:\s*"'),
           cookie_hints=(),
           probes=(probe_rctf_challs,),
+          supports_container=True,
           supports_scoreboard=True)
 class RCTFPlatform(BasePlatform):
     # TTL cache solve-attribution (giây) — cùng pattern CTFd/GZCTF: watch

@@ -1,0 +1,21 @@
+{
+  "task_id": "example_task_id",
+  "category": "crypto",
+  "objective": "Identify unique parameter vector satisfying input-output relations",
+  "data_invariants": {
+    "endianness": "little",
+    "word_size": 32,
+    "state_dimension": 16,
+    "modulus": null
+  },
+  "function_contract": {
+    "name": "solve_model",
+    "inputs": {
+      "observations": "list[dict]"
+    },
+    "output_type": "bytes"
+  },
+  "artifacts": [
+    "observations.json"
+  ]
+}

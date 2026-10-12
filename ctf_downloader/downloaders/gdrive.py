@@ -1,6 +1,7 @@
 import re
+import urllib.parse
+from typing import Dict, Optional, Tuple
 import requests
-from typing import Optional, Tuple
 from ..services.session_factory import create_session
 from ..utils.logger import Logger
 from ..utils.sanitize import extract_filename_from_headers
@@ -42,6 +43,26 @@ def _extract_confirm_token(html_text: str) -> Optional[str]:
         if match:
             return match.group(1)
     return None
+
+
+def _extract_form_action_and_params(html_text: str) -> Tuple[Optional[str], Dict[str, str]]:
+    """Trích action URL và các input params từ form confirm/interstitial của Google Drive."""
+    try:
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html_text, "html.parser")
+        form = soup.find("form", id="download-form") or soup.find("form")
+        if form:
+            action = form.get("action")
+            params = {
+                inp.get("name"): inp.get("value", "")
+                for inp in form.find_all("input")
+                if inp.get("name")
+            }
+            if params:
+                return action, params
+    except Exception:
+        pass
+    return None, {}
 
 
 @register_downloader("gdrive", domains=("drive.google.com", "docs.google.com"))
@@ -104,20 +125,24 @@ class GDriveDownloader:
                 # Read response text to search for confirm token or form
                 html_text = resp.text
 
-                # QUAN TRỌNG: tìm confirm token TRƯỚC, chỉ khi KHÔNG có token
+                # QUAN TRỌNG: tìm confirm token / form interstitial TRƯỚC, chỉ khi KHÔNG có
                 # mới xét marker quota. Trang interstitial hợp lệ vẫn có thể
                 # chứa cụm "permission denied" trong help-text — nếu check quota
                 # trước sẽ chặn nhầm file hoàn toàn tải được (false-positive).
-                confirm_token = _extract_confirm_token(html_text)
-
-                if confirm_token:
-                    second_url = f"https://drive.usercontent.google.com/download?id={file_id}&export=download&authuser=0&confirm={confirm_token}"
-                    resp = session.get(second_url, stream=True, timeout=timeout)
-                elif _looks_like_quota_html(html_text):
-                    raise _fail_quota()
+                action, form_params = _extract_form_action_and_params(html_text)
+                if action and form_params:
+                    target_url = urllib.parse.urljoin(resp.url or "https://drive.usercontent.google.com", action)
+                    resp = session.get(target_url, params=form_params, stream=True, timeout=timeout)
                 else:
-                    # HTML interstitial nhưng không tìm thấy confirm token -> thử fallback
-                    Logger.warning(f"Google Drive: HTML interstitial không có confirm token cho file {file_id}, thử fallback...")
+                    confirm_token = _extract_confirm_token(html_text)
+                    if confirm_token:
+                        second_url = f"https://drive.usercontent.google.com/download?id={file_id}&export=download&authuser=0&confirm={confirm_token}"
+                        resp = session.get(second_url, stream=True, timeout=timeout)
+                    elif _looks_like_quota_html(html_text):
+                        raise _fail_quota()
+                    else:
+                        # HTML interstitial nhưng không tìm thấy confirm token -> thử fallback
+                        Logger.warning(f"Google Drive: HTML interstitial không có confirm token cho file {file_id}, thử fallback...")
 
             # Check if response is successful and has content
             if resp.status_code == 200:
@@ -139,7 +164,13 @@ class GDriveDownloader:
         try:
             std_url = f"https://drive.google.com/uc?export=download&id={file_id}"
             resp = session.get(std_url, stream=True, timeout=timeout)
-            if resp.status_code == 200 and "text/html" not in resp.headers.get("Content-Type", ""):
+            if resp.status_code == 200:
+                if "text/html" in (resp.headers.get("Content-Type", "") or "").lower():
+                    action, form_params = _extract_form_action_and_params(resp.text)
+                    if action and form_params:
+                        target_url = urllib.parse.urljoin(resp.url or "https://drive.usercontent.google.com", action)
+                        resp = session.get(target_url, params=form_params, stream=True, timeout=timeout)
+            if resp.status_code == 200 and "text/html" not in (resp.headers.get("Content-Type", "") or "").lower():
                 filename = extract_filename_from_headers(resp.headers)
                 if not filename or filename == "downloaded_file":
                     filename = f"gdrive_{file_id}.bin"
