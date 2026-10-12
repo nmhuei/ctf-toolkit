@@ -1,4 +1,4 @@
-# Antigravity Agent Guidelines for auto_download_ctf_challenge (ASD-STE100 Standard)
+# Antigravity Agent Guidelines for ctf-toolkit (ASD-STE100 Standard)
 
 ## 1. Collaborative Architecture and Review Rule
 - **Cronjob Verification:**

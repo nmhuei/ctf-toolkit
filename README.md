@@ -18,7 +18,7 @@
 
 ```bash
 # 1. Cài đặt trực tiếp hoặc qua pipx (khuyên dùng)
-git clone https://github.com/nmhuei/auto_download_ctf_challenge.git && cd auto_download_ctf_challenge
+git clone https://github.com/nmhuei/ctf-toolkit.git && cd ctf-toolkit
 pip install -e .
 
 # 2. Khởi động Trung tâm Tác chiến Cockpit TUI

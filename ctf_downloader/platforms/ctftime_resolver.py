@@ -25,7 +25,7 @@ from ..services.session_factory import create_session
 from .base import EventTimes, normalize_epoch_to_utc
 
 # UA bắt buộc có contact — UA mặc định của requests bị CTFtime chặn 403.
-CTFTIME_USER_AGENT = "ctf-downloader/1.0 (+https://github.com/nmhuei/auto_download_ctf_challenge)"
+CTFTIME_USER_AGENT = "ctf-toolkit/3.0 (+https://github.com/nmhuei/ctf-toolkit)"
 
 MATCH_THRESHOLD = 0.60      # ngưỡng chấp nhận ứng viên
 AMBIGUOUS_GAP = 0.15        # top1 - top2 < gap → multi-candidate cho wizard
