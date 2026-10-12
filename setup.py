@@ -18,7 +18,7 @@ class ForceBuildPy(_build_py):
 
 setup(
     name="ctf-toolkit",
-    version="3.0.0",
+    version="3.1.0",
     description="Unified CTF Challenge Downloader, Submitter, Container Manager & Dashboard",
     author="Antigravity",
     packages=find_namespace_packages(include=["ctf_downloader*"]),
